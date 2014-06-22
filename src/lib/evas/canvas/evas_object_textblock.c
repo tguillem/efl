@@ -5152,6 +5152,191 @@ _layout_split_text_because_format(const Evas_Object_Textblock_Format *fmt,
    return EINA_FALSE;
 }
 
+/* returns EINA_TRUE if n is dirty, else returns EINA_FALSE,
+ * alternatively: returns whether to skip to the next step or not */
+/* If it's not a new paragraph, either update it or skip it.
+ * Remove all the paragraphs that were deleted */
+static Eina_Bool
+_layout_pre_handle_old_node(Ctxt *c, Evas_Object_Textblock_Node_Text *n,
+      int *style_pad_l, int *style_pad_r, int *style_pad_t, int *style_pad_b)
+{
+   Evas_Object *eo_obj = c->obj;
+   Evas_Object_Textblock_Node_Format *fnode;
+
+   /* Remove all the deleted paragraphs at this point */
+   while (c->par->text_node != n)
+     {
+        Evas_Object_Textblock_Paragraph *tmp_par =
+           (Evas_Object_Textblock_Paragraph *)
+           EINA_INLIST_GET(c->par)->next;
+
+        c->paragraphs = (Evas_Object_Textblock_Paragraph *)
+           eina_inlist_remove(EINA_INLIST_GET(c->paragraphs),
+                 EINA_INLIST_GET(c->par));
+        _paragraph_free(eo_obj, c->par);
+
+        c->par = tmp_par;
+     }
+
+   /* If it's dirty, remove and recreate, if it's clean,
+    * skip to the next. */
+   if (n->dirty)
+     {
+        Evas_Object_Textblock_Paragraph *prev_par = c->par;
+
+        _layout_paragraph_new(c, n, EINA_TRUE);
+
+        c->paragraphs = (Evas_Object_Textblock_Paragraph *)
+           eina_inlist_remove(EINA_INLIST_GET(c->paragraphs),
+                 EINA_INLIST_GET(prev_par));
+        _paragraph_free(eo_obj, prev_par);
+        return EINA_FALSE;
+     }
+
+   c->par = (Evas_Object_Textblock_Paragraph *)
+      EINA_INLIST_GET(c->par)->next;
+   /* Update the format stack according to the node's
+    * formats */
+   fnode = n->format_node;
+   while (fnode && (fnode->text_node == n))
+     {
+        /* Only do this if this actually changes format */
+        if (fnode->format_change)
+          {
+             int pl = 0, pr = 0, pt = 0, pb = 0;
+             _layout_do_format(eo_obj, c, &c->fmt, fnode,
+                   &pl, &pr, &pt, &pb, EINA_FALSE);
+             fnode->pad.l = pl;
+             fnode->pad.r = pr;
+             fnode->pad.t = pt;
+             fnode->pad.b = pb;
+          }
+        if (fnode->pad.l > *style_pad_l) *style_pad_l = fnode->pad.l;
+        if (fnode->pad.r > *style_pad_r) *style_pad_r = fnode->pad.r;
+        if (fnode->pad.t > *style_pad_t) *style_pad_t = fnode->pad.t;
+        if (fnode->pad.b > *style_pad_b) *style_pad_b = fnode->pad.b;
+        fnode = _NODE_FORMAT(EINA_INLIST_GET(fnode)->next);
+     }
+   return EINA_TRUE;
+}
+
+/* Create items in pre-layout stage.
+ * This create text item(s) and assigns the appropriate formats to them
+ * using the format queue.
+ * Format items might be created as well, if formats are visible.
+ */
+static void
+_layout_pre_node_to_items(Ctxt *c, Evas_Object_Textblock_Node_Text *n,
+      int *style_pad_l, int *style_pad_r, int *style_pad_t, int *style_pad_b)
+{
+   Evas_Object *eo_obj = c->obj;
+   Evas_Object_Textblock_Node_Format *fnode;
+   size_t start;
+   int off;
+   Layout_Text_Append_Queue *queue = NULL;
+
+   TB_NULL_CHECK(n);
+
+   fnode = n->format_node;
+   start = off = 0;
+   while (fnode && (fnode->text_node == n))
+     {
+        Evas_Object_Textblock_Format_Item *fi = NULL;
+        Evas_Object_Textblock_Format *pfmt = c->fmt;
+        pfmt->ref++;
+
+        off += fnode->offset;
+        /* No need to skip on the first run, or a non-visible one */
+        queue = _layout_text_append_queue_item_append(queue, c->fmt, start, off);
+        fi = _layout_do_format(eo_obj, c, &c->fmt, fnode, style_pad_l,
+              style_pad_r, style_pad_t, style_pad_b, EINA_TRUE);
+
+        if (fi || _layout_split_text_because_format(pfmt, c->fmt))
+          {
+             Eina_List *rel = NULL;
+             if (fi)
+               {
+                  rel = eina_list_last(c->par->logical_items);
+               }
+
+             _layout_text_append_commit(c, &queue, n, rel);
+          }
+
+        _format_unref_free(c->obj, pfmt);
+
+        if ((c->have_underline2) || (c->have_underline))
+          {
+             if (*style_pad_b < c->underline_extend)
+                *style_pad_b = c->underline_extend;
+             c->have_underline = 0;
+             c->have_underline2 = 0;
+             c->underline_extend = 0;
+          }
+        start += off;
+        if (fnode->visible)
+          {
+             off = -1;
+             start++;
+          }
+        else
+          {
+             off = 0;
+          }
+        fnode->is_new = EINA_FALSE;
+        fnode = _NODE_FORMAT(EINA_INLIST_GET(fnode)->next);
+     }
+   queue = _layout_text_append_queue_item_append(queue, c->fmt, start,
+         eina_ustrbuf_length_get(n->unicode) - start);
+   _layout_text_append_commit(c, &queue, n, NULL);
+#ifdef BIDI_SUPPORT
+   /* Clear the bidi props because we don't need them anymore. */
+   if (c->par->bidi_props)
+     {
+        evas_bidi_paragraph_props_unref(c->par->bidi_props);
+        c->par->bidi_props = NULL;
+     }
+#endif
+
+}
+
+static void
+_layout_pre_handle_nodes(Ctxt *c, int *style_pad_l, int *style_pad_r,
+      int *style_pad_t, int *style_pad_b)
+{
+   Evas_Textblock_Data *o = c->o;
+   Evas_Object_Textblock_Node_Text *n;
+
+   c->o->have_ellipsis = 0;
+   c->par = c->paragraphs = o->paragraphs;
+   /* Go through all the text nodes to create the logical layout */
+   EINA_INLIST_FOREACH(c->o->text_nodes, n)
+     {
+
+        if (!n->is_new)
+          {
+             if (_layout_pre_handle_old_node(c, n, style_pad_l, style_pad_r,
+                      style_pad_t, style_pad_b))
+               {
+                  continue;
+               }
+          }
+        else
+          {
+             /* If it's a new paragraph, just add it. */
+             _layout_paragraph_new(c, n, EINA_FALSE);
+          }
+
+#ifdef BIDI_SUPPORT
+        _layout_update_bidi_props(c->o, c->par);
+#endif
+
+        _layout_pre_node_to_items(c, n, style_pad_l, style_pad_r,
+              style_pad_t, style_pad_b);
+        c->par = (Evas_Object_Textblock_Paragraph *)
+           EINA_INLIST_GET(c->par)->next;
+     }
+}
+
 /** FIXME: Document */
 static void
 _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
@@ -5166,157 +5351,8 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
 
    if (o->content_changed)
      {
-        Evas_Object_Textblock_Node_Text *n;
-        c->o->have_ellipsis = 0;
-        c->par = c->paragraphs = o->paragraphs;
-        /* Go through all the text nodes to create the logical layout */
-        EINA_INLIST_FOREACH(c->o->text_nodes, n)
-          {
-             Evas_Object_Textblock_Node_Format *fnode;
-             size_t start;
-             int off;
-
-             /* If it's not a new paragraph, either update it or skip it.
-              * Remove all the paragraphs that were deleted */
-             if (!n->is_new)
-               {
-                  /* Remove all the deleted paragraphs at this point */
-                  while (c->par->text_node != n)
-                    {
-                       Evas_Object_Textblock_Paragraph *tmp_par =
-                          (Evas_Object_Textblock_Paragraph *)
-                          EINA_INLIST_GET(c->par)->next;
-
-                       c->paragraphs = (Evas_Object_Textblock_Paragraph *)
-                          eina_inlist_remove(EINA_INLIST_GET(c->paragraphs),
-                                EINA_INLIST_GET(c->par));
-                       _paragraph_free(eo_obj, c->par);
-
-                       c->par = tmp_par;
-                    }
-
-                  /* If it's dirty, remove and recreate, if it's clean,
-                   * skip to the next. */
-                  if (n->dirty)
-                    {
-                       Evas_Object_Textblock_Paragraph *prev_par = c->par;
-
-                       _layout_paragraph_new(c, n, EINA_TRUE);
-
-                       c->paragraphs = (Evas_Object_Textblock_Paragraph *)
-                          eina_inlist_remove(EINA_INLIST_GET(c->paragraphs),
-                                EINA_INLIST_GET(prev_par));
-                       _paragraph_free(eo_obj, prev_par);
-                    }
-                  else
-                    {
-                       c->par = (Evas_Object_Textblock_Paragraph *)
-                          EINA_INLIST_GET(c->par)->next;
-
-                       /* Update the format stack according to the node's
-                        * formats */
-                       fnode = n->format_node;
-                       while (fnode && (fnode->text_node == n))
-                         {
-                            /* Only do this if this actually changes format */
-                            if (fnode->format_change)
-                              {
-                                 int pl = 0, pr = 0, pt = 0, pb = 0;
-                                 _layout_do_format(eo_obj, c, &c->fmt, fnode,
-                                                   &pl, &pr, &pt, &pb, EINA_FALSE);
-                                 fnode->pad.l = pl;
-                                 fnode->pad.r = pr;
-                                 fnode->pad.t = pt;
-                                 fnode->pad.b = pb;
-                              }
-                            if (fnode->pad.l > *style_pad_l) *style_pad_l = fnode->pad.l;
-                            if (fnode->pad.r > *style_pad_r) *style_pad_r = fnode->pad.r;
-                            if (fnode->pad.t > *style_pad_t) *style_pad_t = fnode->pad.t;
-                            if (fnode->pad.b > *style_pad_b) *style_pad_b = fnode->pad.b;
-                            fnode = _NODE_FORMAT(EINA_INLIST_GET(fnode)->next);
-                         }
-                       continue;
-                    }
-               }
-             else
-               {
-                  /* If it's a new paragraph, just add it. */
-                  _layout_paragraph_new(c, n, EINA_FALSE);
-               }
-
-#ifdef BIDI_SUPPORT
-             _layout_update_bidi_props(c->o, c->par);
-#endif
-
-             /* For each text node to thorugh all of it's format nodes
-              * append text from the start to the offset of the next format
-              * using the last format got. if needed it also creates format
-              * items this is the core algorithm of the layout mechanism.
-              * Skip the unicode replacement chars when there are because
-              * we don't want to print them. */
-             Layout_Text_Append_Queue *queue = NULL;
-             fnode = n->format_node;
-             start = off = 0;
-             while (fnode && (fnode->text_node == n))
-               {
-                  Evas_Object_Textblock_Format_Item *fi = NULL;
-                  Evas_Object_Textblock_Format *pfmt = c->fmt;
-                  pfmt->ref++;
-
-                  off += fnode->offset;
-                  /* No need to skip on the first run, or a non-visible one */
-                  queue = _layout_text_append_queue_item_append(queue, c->fmt, start, off);
-                  fi = _layout_do_format(eo_obj, c, &c->fmt, fnode, style_pad_l,
-                        style_pad_r, style_pad_t, style_pad_b, EINA_TRUE);
-
-                  if (fi || _layout_split_text_because_format(pfmt, c->fmt))
-                    {
-                       Eina_List *rel = NULL;
-                       if (fi)
-                         {
-                            rel = eina_list_last(c->par->logical_items);
-                         }
-
-                       _layout_text_append_commit(c, &queue, n, rel);
-                    }
-
-                  _format_unref_free(c->obj, pfmt);
-
-                  if ((c->have_underline2) || (c->have_underline))
-                    {
-                       if (*style_pad_b < c->underline_extend)
-                         *style_pad_b = c->underline_extend;
-                       c->have_underline = 0;
-                       c->have_underline2 = 0;
-                       c->underline_extend = 0;
-                    }
-                  start += off;
-                  if (fnode->visible)
-                    {
-                       off = -1;
-                       start++;
-                    }
-                  else
-                    {
-                       off = 0;
-                    }
-                  fnode->is_new = EINA_FALSE;
-                  fnode = _NODE_FORMAT(EINA_INLIST_GET(fnode)->next);
-               }
-             queue = _layout_text_append_queue_item_append(queue, c->fmt, start,
-                   eina_ustrbuf_length_get(n->unicode) - start);
-             _layout_text_append_commit(c, &queue, n, NULL);
-#ifdef BIDI_SUPPORT
-             /* Clear the bidi props because we don't need them anymore. */
-             if (c->par->bidi_props)
-               {
-                  evas_bidi_paragraph_props_unref(c->par->bidi_props);
-                  c->par->bidi_props = NULL;
-               }
-#endif
-             c->par = (Evas_Object_Textblock_Paragraph *)
-                EINA_INLIST_GET(c->par)->next;
-          }
+        _layout_pre_handle_nodes(c, style_pad_l, style_pad_r, style_pad_t,
+              style_pad_b);
 
         /* Delete the rest of the layout paragraphs */
         while (c->par)
