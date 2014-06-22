@@ -4609,78 +4609,16 @@ _layout_par_append_ellipsis(Ctxt *c)
    c->x += ellip_ti->parent.adv;
 }
 
-/* 0 means go ahead, 1 means break without an error, 2 means
- * break with an error, should probably clean this a bit (enum/macro)
- * FIXME ^ */
-static int
+/* returns true if we should break the layouting after this paragraph, otherwise
+ * false. */
+static Eina_Bool
 _layout_par(Ctxt *c)
 {
    Evas_Object_Textblock_Item *it;
    Eina_List *i;
-   int ret = 0;
+   Eina_Bool ret = EINA_FALSE;
    int wrap = -1;
    char *line_breaks = NULL;
-
-   if (!c->par->logical_items)
-     return 2;
-
-   /* We want to show it. */
-   c->par->visible = 1;
-
-   /* Check if we need to skip this paragraph because it's already layouted
-    * correctly, and mark handled nodes as dirty. */
-   c->par->line_no = c->line_no;
-
-   if (c->par->text_node)
-     {
-        /* Skip this paragraph if width is the same, there is no ellipsis
-         * and we aren't just calculating. */
-        if (!c->par->text_node->is_new && !c->par->text_node->dirty &&
-              !c->width_changed && c->par->lines &&
-              !c->o->have_ellipsis)
-          {
-             Evas_Object_Textblock_Line *ln;
-             /* Update c->line_no */
-             ln = (Evas_Object_Textblock_Line *)
-                EINA_INLIST_GET(c->par->lines)->last;
-             if (ln)
-                c->line_no = c->par->line_no + ln->line_no + 1;
-
-             /* After this par we are no longer at the beginning, as there
-              * must be some text in the par. */
-             if (c->position == TEXTBLOCK_POSITION_START)
-                c->position = TEXTBLOCK_POSITION_ELSE;
-
-             return 0;
-          }
-        c->par->text_node->dirty = EINA_FALSE;
-        c->par->text_node->is_new = EINA_FALSE;
-        c->par->rendered = EINA_FALSE;
-
-        /* Merge back and clear the paragraph */
-          {
-             Eina_List *itr, *itr_next;
-             Evas_Object_Textblock_Item *ititr, *prev_it = NULL;
-             _paragraph_clear(c->obj, c->par);
-             EINA_LIST_FOREACH_SAFE(c->par->logical_items, itr, itr_next, ititr)
-               {
-                  if (ititr->merge && prev_it &&
-                        (prev_it->type == EVAS_TEXTBLOCK_ITEM_TEXT) &&
-                        (ititr->type == EVAS_TEXTBLOCK_ITEM_TEXT))
-                    {
-                       _layout_item_merge_and_free(c, _ITEM_TEXT(prev_it),
-                             _ITEM_TEXT(ititr));
-                       c->par->logical_items =
-                          eina_list_remove_list(c->par->logical_items, itr);
-                    }
-                  else
-                    {
-                       ititr->visually_deleted = EINA_FALSE;
-                       prev_it = ititr;
-                    }
-               }
-          }
-     }
 
    c->y = c->par->y;
 
@@ -4762,7 +4700,7 @@ _layout_par(Ctxt *c)
                      !it->format->wrap_mixed)))
                {
                   _layout_handle_ellipsis(c, it, i);
-                  ret = 1;
+                  ret = EINA_TRUE;
                   goto end;
                }
              /* If we want to wrap and it's worth checking for wrapping
@@ -4858,7 +4796,7 @@ _layout_par(Ctxt *c)
                             if (it->format->ellipsis == 1.0)
                               {
                                  _layout_handle_ellipsis(c, it, i);
-                                 ret = 1;
+                                 ret = EINA_TRUE;
                                  goto end;
                               }
                             else
@@ -4957,6 +4895,76 @@ end:
       free(line_breaks);
 
    return ret;
+}
+
+/* 0 means go ahead, 1 means break without an error, 2 means
+ * break with an error, should probably clean this a bit (enum/macro)
+ * FIXME ^ */
+static int
+_layout_par_if_needed(Ctxt *c)
+{
+   if (!c->par->logical_items)
+     return 2;
+
+   /* We want to show it. */
+   c->par->visible = 1;
+
+   /* Check if we need to skip this paragraph because it's already layouted
+    * correctly, and mark handled nodes as dirty. */
+   c->par->line_no = c->line_no;
+
+   if (c->par->text_node)
+     {
+        /* Skip this paragraph if width is the same, there is no ellipsis
+         * and we aren't just calculating. */
+        if (!c->par->text_node->is_new && !c->par->text_node->dirty &&
+              !c->width_changed && c->par->lines &&
+              !c->o->have_ellipsis)
+          {
+             Evas_Object_Textblock_Line *ln;
+             /* Update c->line_no */
+             ln = (Evas_Object_Textblock_Line *)
+                EINA_INLIST_GET(c->par->lines)->last;
+             if (ln)
+                c->line_no = c->par->line_no + ln->line_no + 1;
+
+             /* After this par we are no longer at the beginning, as there
+              * must be some text in the par. */
+             if (c->position == TEXTBLOCK_POSITION_START)
+                c->position = TEXTBLOCK_POSITION_ELSE;
+
+             return 0;
+          }
+        c->par->text_node->dirty = EINA_FALSE;
+        c->par->text_node->is_new = EINA_FALSE;
+        c->par->rendered = EINA_FALSE;
+
+        /* Merge back and clear the paragraph */
+          {
+             Eina_List *itr, *itr_next;
+             Evas_Object_Textblock_Item *ititr, *prev_it = NULL;
+             _paragraph_clear(c->obj, c->par);
+             EINA_LIST_FOREACH_SAFE(c->par->logical_items, itr, itr_next, ititr)
+               {
+                  if (ititr->merge && prev_it &&
+                        (prev_it->type == EVAS_TEXTBLOCK_ITEM_TEXT) &&
+                        (ititr->type == EVAS_TEXTBLOCK_ITEM_TEXT))
+                    {
+                       _layout_item_merge_and_free(c, _ITEM_TEXT(prev_it),
+                             _ITEM_TEXT(ititr));
+                       c->par->logical_items =
+                          eina_list_remove_list(c->par->logical_items, itr);
+                    }
+                  else
+                    {
+                       ititr->visually_deleted = EINA_FALSE;
+                       prev_it = ititr;
+                    }
+               }
+          }
+     }
+
+   return (_layout_par(c) ? 1 : 0);
 }
 
 /**
@@ -5358,7 +5366,7 @@ _layout_visual(Ctxt *c)
         _layout_update_par(c);
 
         /* Break if we should stop here. */
-        if (_layout_par(c))
+        if (_layout_par_if_needed(c))
           {
              last_vis_par = c->par;
              break;
