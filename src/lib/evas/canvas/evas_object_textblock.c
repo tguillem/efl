@@ -4609,6 +4609,33 @@ _layout_par_append_ellipsis(Ctxt *c)
    c->x += ellip_ti->parent.adv;
 }
 
+/* sets line breaks for given Textblock Item 'it'.
+ * Doesn't set if already set before (non-null). */
+static void
+_get_line_breaks(Evas_Object_Textblock_Item *it, char **breaks)
+{
+   /* If we haven't calculated the linebreaks yet,
+    * do */
+   if (!(*breaks))
+     {
+        /* Only relevant in those cases */
+        if (it->format->wrap_word || it->format->wrap_mixed)
+          {
+             const char *lang;
+             lang = (it->format->font.fdesc) ?
+                it->format->font.fdesc->lang : "";
+             size_t len =
+                eina_ustrbuf_length_get(
+                      it->text_node->unicode);
+             *breaks = malloc(len);
+             set_linebreaks_utf32((const utf32_t *)
+                   eina_ustrbuf_string_get(
+                      it->text_node->unicode),
+                   len, lang, *breaks);
+          }
+     }
+}
+
 /* returns true if we should break the layouting after this paragraph, otherwise
  * false. */
 static Eina_Bool
@@ -4617,7 +4644,7 @@ _layout_par(Ctxt *c)
    Evas_Object_Textblock_Item *it;
    Eina_List *i;
    Eina_Bool ret = EINA_FALSE;
-   int wrap = -1;
+   int wrap;
    char *line_breaks = NULL;
 
    c->y = c->par->y;
@@ -4638,6 +4665,7 @@ _layout_par(Ctxt *c)
            _layout_par_ellipsis_items(c, ellip);
      }
 
+   wrap = -1;
    for (i = c->par->logical_items ; i ; )
      {
         Evas_Coord prevdescent = 0, prevascent = 0;
@@ -4715,32 +4743,18 @@ _layout_par(Ctxt *c)
                      1 : _ITEM_TEXT(it)->text_props.text_len;
 
 
-                  /* If we haven't calculated the linebreaks yet,
-                   * do */
-                  if (!line_breaks)
-                    {
-                       /* Only relevant in those cases */
-                       if (it->format->wrap_word || it->format->wrap_mixed)
-                         {
-                            const char *lang;
-                            lang = (it->format->font.fdesc) ?
-                               it->format->font.fdesc->lang : "";
-                            size_t len =
-                               eina_ustrbuf_length_get(
-                                     it->text_node->unicode);
-                            line_breaks = malloc(len);
-                            set_linebreaks_utf32((const utf32_t *)
-                                  eina_ustrbuf_string_get(
-                                     it->text_node->unicode),
-                                  len, lang, line_breaks);
-                         }
-                    }
                   if (c->ln->items)
                      line_start = c->ln->items->text_pos;
                   else
                      line_start = it->text_pos;
 
                   adv_line = 1;
+                  /* we get line breaks now, before any wrapping causes the text
+                   * node (remember, we are handling a single text node at the
+                   * beginning of this function) to be split. This line breaks
+                   * information is set once and will be used throughout this
+                   * function */
+                  _get_line_breaks(it, &line_breaks);
                   /* If we don't already have a wrap point from before */
                   if (wrap < 0)
                     {
