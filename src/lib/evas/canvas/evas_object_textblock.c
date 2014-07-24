@@ -4897,14 +4897,21 @@ end:
    return ret;
 }
 
+typedef enum
+{
+   EVAS_TEXTBLOCK_LAYOUT_PAR_OK,
+   EVAS_TEXTBLOCK_LAYOUT_PAR_ERR_NOBRK,
+   EVAS_TEXTBLOCK_LAYOUT_PAR_ERR_BRK
+} Evas_Textblock_Layout_Par_Code;
+
 /* 0 means go ahead, 1 means break without an error, 2 means
  * break with an error, should probably clean this a bit (enum/macro)
  * FIXME ^ */
-static int
+static Evas_Textblock_Layout_Par_Code
 _layout_par_if_needed(Ctxt *c)
 {
    if (!c->par->logical_items)
-     return 2;
+     return EVAS_TEXTBLOCK_LAYOUT_PAR_ERR_BRK;
 
    /* We want to show it. */
    c->par->visible = 1;
@@ -4933,7 +4940,7 @@ _layout_par_if_needed(Ctxt *c)
              if (c->position == TEXTBLOCK_POSITION_START)
                 c->position = TEXTBLOCK_POSITION_ELSE;
 
-             return 0;
+             return EVAS_TEXTBLOCK_LAYOUT_PAR_OK;
           }
         c->par->text_node->dirty = EINA_FALSE;
         c->par->text_node->is_new = EINA_FALSE;
@@ -4964,7 +4971,10 @@ _layout_par_if_needed(Ctxt *c)
           }
      }
 
-   return (_layout_par(c) ? 1 : 0);
+   return (_layout_par(c) ?
+         EVAS_TEXTBLOCK_LAYOUT_PAR_ERR_NOBRK :
+         EVAS_TEXTBLOCK_LAYOUT_PAR_OK
+         );
 }
 
 /**
@@ -5366,7 +5376,7 @@ _layout_visual(Ctxt *c)
         _layout_update_par(c);
 
         /* Break if we should stop here. */
-        if (_layout_par_if_needed(c))
+        if (_layout_par_if_needed(c) != EVAS_TEXTBLOCK_LAYOUT_PAR_OK)
           {
              last_vis_par = c->par;
              break;
