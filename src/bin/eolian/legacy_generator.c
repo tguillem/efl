@@ -16,7 +16,7 @@ tmpl_eapi_funcdef[] = "\n\
  *\n\
 @#list_desc_param\
  */\n\
-EAPI @#type_return%s(@#is_constEo *obj@#params)@#flags;\n\
+EAPI @#type_return%s(@#is_const@#Class *obj@#params)@#flags;\n\
 ";
 
 /*@#CLASS_CHECK(obj) @#check_ret;\n\*/
@@ -24,18 +24,18 @@ static const char
 tmpl_eapi_body[] ="\
 \n\
 EAPI @#ret_type\n\
-@#eapi_func(@#is_constEo *obj@#full_params)\n\
+@#eapi_func(@#is_const@#Class *obj@#full_params)\n\
 {\n\
-   return eo_do((Eo *) obj, @#eo_func(@#eo_params));\n\
+   return eo_do((@#Class *) obj, @#eo_func(@#eo_params));\n\
 }\n\
 ";
 static const char
 tmpl_eapi_body_void[] ="\
 \n\
 EAPI void\n\
-@#eapi_func(@#is_constEo *obj@#full_params)\n\
+@#eapi_func(@#is_const@#Class *obj@#full_params)\n\
 {\n\
-   eo_do((Eo *) obj, @#eo_func(@#eo_params));\n\
+   eo_do((@#Class *) obj, @#eo_func(@#eo_params));\n\
 }\n\
 ";
 
@@ -84,6 +84,7 @@ _eapi_decl_func_generate(const Eolian_Class *class, const Eolian_Function *funci
 
    if (func_env.legacy_func[0] == '\0') goto end;
    eina_strbuf_append_printf(fbody, tmpl_eapi_funcdef, func_env.legacy_func);
+   eina_strbuf_replace_all(fbody, "@#Class", class_env.full_classname);
 
    sprintf (tmpstr, "comment%s", suffix);
    const char *desc = eolian_function_description_get(funcid, tmpstr);
@@ -253,6 +254,7 @@ _eapi_func_generate(const Eolian_Class *class, const Eolian_Function *funcid, Eo
 
    eina_strbuf_replace_all(fbody, "@#eapi_func", func_env.legacy_func);
    eina_strbuf_replace_all(fbody, "@#eo_func", func_env.lower_eo_func);
+   eina_strbuf_replace_all(fbody, "@#Class", class_env.full_classname);
 
    tmpstr[0] = '\0';
 
