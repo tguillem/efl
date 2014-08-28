@@ -99,7 +99,7 @@ struct _Evas_Text_Props_Info
 {
    Evas_Font_Glyph_Info *glyph; // 8/4
    Evas_Font_OT_Info *ot; // 8/4
-   int len; // 8/4
+   size_t len; // 8/4
    unsigned int refcount; // 4
 };
 
@@ -162,9 +162,8 @@ evas_common_text_props_content_create(void *_fi, const Eina_Unicode *text,
 
 EAPI Eina_Bool
 evas_common_text_props_content_update(void *_fi, const Eina_Unicode *text,
-      Evas_Text_Props *text_props,
-      int pos, int len, Evas_Text_Props_Mode mode);
-
+      Evas_Text_Props *text_props, size_t text_pos,
+      int len, Evas_Text_Props_Mode mode);
 void
 evas_common_text_props_content_copy_and_ref(Evas_Text_Props *dst,
       const Evas_Text_Props *src);
@@ -192,6 +191,18 @@ evas_common_text_props_split(Evas_Text_Props *base, Evas_Text_Props *ext,
       int cutoff);
 EAPI void
 evas_common_text_props_merge(Evas_Text_Props *item1, const Evas_Text_Props *item2);
+
+EAPI Eina_Bool
+evas_common_text_props_unmerge(Evas_Text_Props *props1, Evas_Text_Props *props2);
+
+EAPI Eina_Bool
+evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right, size_t text_len, Evas_Text_Props_Mode mode);
+
+EAPI Eina_Bool
+evas_common_text_props_append(void *_fi, const Eina_Unicode *text, Evas_Text_Props *text_props, size_t text_pos, size_t len, Evas_Text_Props_Mode mode);
+
+EAPI Eina_Bool
+evas_common_text_props_prepend(void *_fi, const Eina_Unicode *text, Evas_Text_Props *text_props, size_t text_pos, size_t len, Evas_Text_Props_Mode mode);
 
 /* Common to Textblock and Filters */
 Eina_Bool evas_common_format_color_parse(const char *str, int slen, unsigned char *r, unsigned char *g, unsigned char *b, unsigned char *a);

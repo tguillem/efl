@@ -5191,84 +5191,215 @@ _layout_split_text_because_format(const Evas_Object_Textblock_Format *fmt,
 }
 
 static Evas_Object_Textblock_Item *
-_layout_find_item_node_match(Evas_Object_Textblock_Node_Text *n, size_t pos)
+_layout_find_item_node_match(Evas_Object_Textblock_Node_Text *n, size_t pos,
+      Eina_List **ret_list)
 {
    Evas_Object_Textblock_Item *itr, *pitr = NULL;
    Eina_List *list, *l;
    list = n->par->logical_items;
    pitr = eina_list_data_get(list); //first item can't be visually-deleted
+   *ret_list = list;
    list = eina_list_next(list);
    EINA_LIST_FOREACH(list, l, itr)
      {
         if (itr->visually_deleted)
            continue;
-        if (itr->text_pos > pos)
+        if (itr->text_pos >= pos)
            return pitr;
         pitr = itr;
+        *ret_list = l;
      }
    return pitr;
 }
 
-/* Updates text props info of all items that follow the current item 'it' */
+/* Updates text props offsets of all items that follow the current item 'it'.
+ * If 'it' is not supplied, gets item from 'lti'. */
 static void
-_update_items_with_same_info(Evas_Object_Textblock_Paragraph *par,
-      Evas_Object_Textblock_Item *it, int goff, int toff)
+_update_merged_items(Evas_Object_Textblock_Paragraph *par,
+      Eina_List *lti, Evas_Object_Textblock_Item *it, int toff)
 {
    Eina_List *items, *i;
    Evas_Object_Textblock_Item *itr;
 
+   Evas_Object_Textblock_Text_Item *prev_ti;
+
+   if (!it)
+      prev_ti = eina_list_data_get(lti);
+   else
+      prev_ti = _ITEM_TEXT(it);
+
+   items = eina_list_next(lti);
    /* First, go update all split items that follow 'it' i.e. items that have the
     * same glyph information */
-   items = eina_list_data_find_list(par->logical_items, it)->next;
    EINA_LIST_FOREACH(items, i, itr)
      {
         /* check if we've gone through all split items */
         if (!itr->merge)
            break;
 
-        itr->text_pos += toff;
-        Evas_Object_Textblock_Text_Item *ti;
-        if (itr->type == EVAS_TEXTBLOCK_ITEM_TEXT)
+        Evas_Object_Textblock_Text_Item *ti = _ITEM_TEXT(itr);
+
+        /* Sanity */
+        if (ti->text_props.info != _ITEM_TEXT(it)->text_props.info)
           {
-             ti = _ITEM_TEXT(itr);
-
-             /* Sanity */
-             if (ti->text_props.info != _ITEM_TEXT(it)->text_props.info)
-               {
-                  ERR("Updating split items' text props, but current"
-                        "item does not have same glyph info.");
-                  break;
-               }
-
-             ti->text_props.start += goff;
-             ti->text_props.changed = EINA_TRUE;
-             ti->text_props.text_offset += toff;
+             ERR("Updating split items' text props, but current"
+                   "item does not have same glyph info.");
+             break;
           }
-     }
 
-   /* Second, update following items (not splits of 'it') */
-   items = i;
+        ti->text_props.start = prev_ti->text_props.start + prev_ti->text_props.len;
+        ti->text_props.text_offset = prev_ti->text_props.text_offset + prev_ti->text_props.text_len;
+        ti->text_props.changed = EINA_TRUE;
+
+        prev_ti = ti;
+     }
+}
+
+/* Updates text props offsets of all items that follow the current item 'it'.
+ * If 'it' is not supplied, gets item from 'lti'. */
+static void
+_update_items_text_pos(Eina_List *lti, Evas_Object_Textblock_Item *it, int toff)
+{
+   Eina_List *items, *i;
+   Evas_Object_Textblock_Item *itr;
+
+   Evas_Object_Textblock_Text_Item *prev_ti;
+
+   if (!it)
+      prev_ti = eina_list_data_get(lti);
+   else
+      prev_ti = _ITEM_TEXT(it);
+
+   items = eina_list_next(lti);
+   /* First, go update all split items that follow 'it' i.e. items that have the
+    * same glyph information */
    EINA_LIST_FOREACH(items, i, itr)
      {
         itr->text_pos += toff;
-        Evas_Object_Textblock_Text_Item *ti;
-        if (itr->type == EVAS_TEXTBLOCK_ITEM_TEXT)
-          {
-             ti = _ITEM_TEXT(itr);
+     }
+}
 
-             /* note that the difference here from the previous loop is that
-              * we don't update 'start' field, as this is for items
-              * that have not been changed */
-             ti->text_props.changed = EINA_TRUE;
-             ti->text_props.text_offset += toff;
-          }
+typedef struct _Font_Run
+{
+   Evas_Object_Textblock_Format *fmt;
+   Evas_Font_Instance *fi;
+   int run_len;
+   int pos;
+   Evas_Script_Type script;
+} Font_Run;
+
+EAPI void
+pruns(Eina_List *runs)
+{
+   Eina_List *i;
+   Font_Run *run;
+   size_t idx = 0;
+
+   printf("Font Runs:\n");
+   EINA_LIST_FOREACH(runs, i, run)
+     {
+        printf("Run #%lu:\n", idx++);
+        printf("  script idx: %d\n", run->script);
+        printf("  pos: %d\n", run->pos);
+        printf("  length: %d\n", run->run_len);
      }
 
 }
 
+/* variation of _layout_text_append, but without queuing. Return list of font
+ * runs. So it is processed later to create text items. Don't forget to free
+ * after use. */
+static Eina_List *
+_layout_text_font_runs_get(Ctxt *c, Evas_Object_Textblock_Format *fmt, const Eina_Unicode *_str, int start, int off, const char *repch)
+{
+   const Eina_Unicode *str = _str;
+   const Eina_Unicode *tbase;
+   size_t cur_len = 0;
+   Eina_Unicode urepch = 0;
+
+   Eina_List *font_runs = NULL;
+
+   /* Figure out if we want to bail, work with an empty string,
+    * or continue with a slice of the passed string */
+   /* If we work with a replacement char, create a string which is the same
+    * but with replacement chars instead of regular chars. */
+   if (fmt->password && repch && off)
+     {
+        int i, ind;
+        Eina_Unicode *ptr;
+
+        tbase = str = ptr = alloca((off + 1) * sizeof(Eina_Unicode));
+        ind = 0;
+        urepch = eina_unicode_utf8_next_get(repch, &ind);
+        for (i = 0 ; i < off; ptr++, i++)
+           *ptr = urepch;
+        *ptr = 0;
+     }
+   /* Use the string, just cut the relevant parts */
+   else
+     {
+        str = _str + start;
+     }
+
+   cur_len = off;
+
+   tbase = str;
+
+   while (cur_len > 0)
+     {
+        Evas_Font_Instance *script_fi = NULL;
+        int script_len, tmp_cut;
+        Evas_Script_Type script;
+
+        script_len = cur_len;
+
+        tmp_cut = evas_common_language_script_end_of_run_get(str,
+              c->par->bidi_props, start + str - tbase, script_len);
+        if (tmp_cut > 0)
+          {
+             script_len = tmp_cut;
+          }
+        cur_len -= script_len;
+
+        script = evas_common_language_script_type_get(str, script_len);
+
+        Evas_Object_Protected_Data *obj = eo_data_scope_get(c->obj, EVAS_OBJECT_CLASS);
+        while (script_len > 0)
+          {
+             Evas_Font_Instance *cur_fi = NULL;
+             int run_len = script_len;
+             Font_Run *fr;
+
+             fr = malloc(sizeof(Font_Run));
+             fr->fmt = fmt;
+             fr->pos = start + str - tbase;
+             fr->fi = NULL;
+             fr->script = script;
+
+             if (fmt->font.font)
+               {
+                  fr->run_len = run_len = ENFN->font_run_end_get(ENDT,
+                        fmt->font.font, &script_fi, &cur_fi,
+                        script, str, script_len);
+               }
+
+             if (cur_fi)
+               {
+                  fr->fi = cur_fi;
+               }
+
+             font_runs = eina_list_append(font_runs, fr);
+
+             str += run_len;
+             script_len -= run_len;
+          }
+     }
+   return font_runs;
+}
+
 /* Inserts new dirty information */
 static void
-_dirty_info_append(Evas_Object_Textblock_Node_Text *n, size_t pos, size_t len)
+_dirty_info_append(Evas_Object_Textblock_Node_Text *n, size_t pos, int len)
 {
    Evas_Object_Textblock_Dirty_Info *info =
       malloc(sizeof(Evas_Object_Textblock_Dirty_Info));
@@ -5290,22 +5421,308 @@ _dirty_info_free(Evas_Object_Textblock_Node_Text *n)
    n->dirty_info = NULL;
 }
 
+#define RUN_MATCH_ITEM(_run, _ti) ((_run->script == _ti->text_props.script) && (_run->fi == _ti->text_props.font_instance))
+
+static inline void
+_items_hard_split(Eina_List *left, Eina_List *mid, Eina_List *right, Evas_Object_Textblock_Text_Item *left_ti, Evas_Object_Textblock_Text_Item *mid_ti,
+Evas_Object_Textblock_Text_Item *right_ti, size_t text_len)
+{
+   Evas_Text_Props *props_left = NULL, *props_mid = NULL, *props_right = NULL;
+   if (left_ti)
+     {
+        props_left = &left_ti->text_props;
+     }
+   if (mid_ti) //FIXME: redundant. should be non-null
+     {
+        props_mid = &mid_ti->text_props;
+     }
+   if (right_ti)
+     {
+        props_right = &right_ti->text_props;
+     }
+
+   evas_common_text_props_hard_split(props_left, props_mid, props_right, text_len, 0);
+
+   if (props_right)
+     {
+        Eina_List *i;
+        Evas_Object_Textblock_Item *it;
+
+        right = eina_list_next(right);
+        EINA_LIST_FOREACH(right, i, it)
+          {
+             if (!it->merge) break;
+
+             _ITEM_TEXT(it)->text_props.info = props_right->info;
+             evas_common_text_props_content_unref(props_mid);
+             evas_common_text_props_content_ref(props_right);
+          }
+     }
+}
+
+/* updates all positions, offsets and whatnot :) */
+static inline void
+_fix_pos_off_and_whatnot(Ctxt *c, Eina_List *start)
+{
+   Evas_Object_Textblock_Item *it, *prev_it;
+   size_t prev_len;
+   Eina_List *i;
+
+   if (!start)
+     {
+        start = c->par->logical_items;
+     }
+   prev_it = eina_list_data_get(start);
+   prev_len = GET_ITEM_LEN(prev_it);
+   start = eina_list_next(start);
+   EINA_LIST_FOREACH(start, i, it)
+     {
+        it->text_pos = prev_it->text_pos + prev_len;
+
+        if (it->merge)
+          {
+             _ITEM_TEXT(it)->text_props.text_offset = _ITEM_TEXT(prev_it)->text_props.text_offset + prev_len;
+             _ITEM_TEXT(it)->text_props.start = _ITEM_TEXT(prev_it)->text_props.start + _ITEM_TEXT(prev_it)->text_props.len;
+          }
+
+        prev_it = it;
+        prev_len = GET_ITEM_LEN(it);
+     }
+
+}
+
+static inline Eina_Bool
+_handle_first_run(Ctxt *c, const Eina_Unicode *str, Font_Run *first_run, Evas_Object_Textblock_Text_Item *left_ti, Evas_Text_Props_Mode mode)
+{
+   if (left_ti && RUN_MATCH_ITEM(first_run, left_ti))
+     {
+        evas_common_text_props_append(first_run->fi, str, &left_ti->text_props, left_ti->parent.text_pos, first_run->run_len, EVAS_TEXT_PROPS_MODE_SHAPE);
+
+        return EINA_TRUE;
+     }
+
+   return EINA_FALSE;
+}
+
+static inline Eina_Bool
+_handle_last_run(Ctxt *c, const Eina_Unicode *str, Font_Run *last_run, Evas_Object_Textblock_Text_Item *right_ti, Evas_Text_Props_Mode mode)
+{
+   if (right_ti && RUN_MATCH_ITEM(last_run, right_ti))
+     {
+        evas_common_text_props_prepend(last_run->fi, str, &right_ti->text_props, last_run->pos, last_run->run_len, EVAS_TEXT_PROPS_MODE_SHAPE);
+
+        return EINA_TRUE;
+     }
+   return EINA_FALSE;
+}
+/**
+ * @internal
+ *  Updates the text item. Might create more than one item and also breka it down
+ *  in case a new script has been added.
+ *  @param c the context
+ *  @param str the string
+ *  @param ti the text item
+ */
+static inline void
+_layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
+      Eina_List *lti, Evas_Object_Textblock_Node_Text *n, int len)
+{
+   /* Create items from the given text range (str, len). */
+   /* get that string in the text node matching the item */
+   Eina_Unicode *str = eina_unicode_strdup(
+         eina_ustrbuf_string_get(n->unicode));
+
+   size_t text_len = eina_ustrbuf_length_get(n->unicode);
+
+   Font_Run *run, *first_run, *last_run;
+   Eina_List *font_runs;
+
+   Eina_List *left, *right;
+   Eina_List *first, *last;
+
+   Eina_Bool update_only = EINA_TRUE;
+
+   Eina_List *fix_start = NULL;
+
+   size_t cur_off = 0; // indicates an item's text pos in each step
+
+   Evas_Object_Textblock_Text_Item *left_ti = NULL;
+   Evas_Object_Textblock_Text_Item *right_ti = NULL;
+   Evas_Object_Textblock_Text_Item *merge_left_ti = NULL;
+   Evas_Object_Textblock_Text_Item *merge_right_ti = NULL;
+
+
+   Evas_Object_Protected_Data *obj = eo_data_scope_get(c->obj, EVAS_OBJECT_CLASS);
+
+/* We need the bidi props again. The following line is the first place where
+ * we need it. Afterwards, we need it when creating new text items */
+#ifdef BIDI_SUPPORT
+   _layout_update_bidi_props(c->o, c->par);
+#endif
+   font_runs = _layout_text_font_runs_get(c, ti->parent.format, str, ti->parent.text_pos, len + ti->text_props.text_len, c->o->repch);
+
+   /* First, check if there is only one font run. Its script and font instance
+    * should be the same as the original item's */
+   if (eina_list_count(font_runs) == 1)
+     {
+        int prev_len = ti->text_props.len;
+        int prev_tlen = ti->text_props.text_len;
+        int diff, difft;
+
+        run = eina_list_data_get(font_runs);
+        evas_common_text_props_content_update(
+              run->fi, str, &ti->text_props, ti->parent.text_pos,
+              len, EVAS_TEXT_PROPS_MODE_SHAPE);
+
+        diff = ti->text_props.len - prev_len;
+        difft = ti->text_props.text_len - prev_tlen;
+
+        goto end;
+     }
+
+   /* We have more than one font run due to changes in the item. Handle
+    * each case appropriately */
+
+   update_only = EINA_FALSE;
+
+   first = font_runs;
+   last = eina_list_last(font_runs);
+   first_run = eina_list_data_get(first);
+   last_run = eina_list_data_get(last);
+
+   left = eina_list_prev(lti);
+   if (left)
+     {
+        Evas_Object_Textblock_Item *left_it = eina_list_data_get(left);
+        if (left_it->type == EVAS_TEXTBLOCK_ITEM_TEXT)
+          {
+             left_ti = _ITEM_TEXT(left_it);
+             if (ti->parent.merge)
+               {
+                  merge_left_ti = left_ti;
+               }
+          }
+     }
+
+   right = eina_list_next(lti);
+   if (right)
+     {
+        Evas_Object_Textblock_Item *right_it = eina_list_data_get(right);
+        if (right_it->type == EVAS_TEXTBLOCK_ITEM_TEXT)
+          {
+             right_ti = _ITEM_TEXT(right_it);
+             if (right_ti->parent.merge)
+               {
+                  merge_right_ti = right_ti;
+                  right_it->merge = EINA_FALSE;
+               }
+          }
+     }
+
+   /* There is more than one run. This means that we have to split the left
+    * and right items from one another. If either don't exist, or don't have
+    * the 'merge' relation with 'ti', then it is not affected by the "cut".*/
+   _items_hard_split(left, lti, right, merge_left_ti, ti, merge_right_ti, text_len);
+
+   /* Handle the rest of the items */
+     {
+        Eina_List *rel = lti;
+        Eina_List *i;
+        Evas_Object_Textblock_Item *prev_it;
+
+        prev_it = (left ? eina_list_data_get(left) : NULL);
+        EINA_LIST_FOREACH(first, i, run)
+          {
+             /* Two special cases. We want to keep those inside the loop because
+              * we also update text positions and offsets and whatnot in here */
+             if (i == first)
+               {
+                  if(_handle_first_run(c, str, first_run, merge_left_ti, EVAS_TEXT_PROPS_MODE_SHAPE))
+                    {
+                       _text_item_update_sizes(c, merge_left_ti);
+                       continue;
+                    }
+               }
+             else if (i == last)
+               {
+                  if(_handle_last_run(c, str, run, merge_right_ti, EVAS_TEXT_PROPS_MODE_SHAPE))
+                    {
+                       _text_item_update_sizes(c, merge_right_ti);
+                       break; // or continue - this is the last node
+                    }
+               }
+
+             Evas_Object_Textblock_Text_Item *new_ti;
+             new_ti = _layout_text_item_new(c, run->fmt);
+             new_ti->parent.text_node = n;
+             new_ti->parent.text_pos = (prev_it ? (prev_it->text_pos + GET_ITEM_LEN(prev_it)) : 0);
+             prev_it = &new_ti->parent;
+
+             evas_common_text_props_bidi_set(&new_ti->text_props,
+                   c->par->bidi_props, new_ti->parent.text_pos);
+             evas_common_text_props_script_set(&new_ti->text_props, run->script);
+
+             if (run->fi)
+               {
+                  ENFN->font_text_props_info_create(ENDT,
+                        run->fi, str + new_ti->parent.text_pos, &new_ti->text_props, c->par->bidi_props,
+                        new_ti->parent.text_pos, run->run_len, EVAS_TEXT_PROPS_MODE_SHAPE);
+                  _text_item_update_sizes(c, new_ti);
+                  c->par->logical_items = eina_list_append_relative_list(
+                        c->par->logical_items, new_ti, rel);
+                  /* append items one after another */
+                  rel = eina_list_next(rel);
+               }
+          }
+     }
+
+end:
+#ifdef BIDI_SUPPORT
+   if (c->par->bidi_props)
+     {
+        evas_bidi_paragraph_props_unref(c->par->bidi_props);
+        c->par->bidi_props = NULL;
+     }
+#endif
+   EINA_LIST_FREE(font_runs, run)
+     {
+        free(run);
+     }
+
+   if (update_only)
+      _text_item_update_sizes(c, ti);
+
+     {
+        Eina_List *start = NULL;
+
+        start = eina_list_next(lti);
+        if (!update_only)
+          {
+             c->par->logical_items = eina_list_remove_list(c->par->logical_items, lti);
+          }
+        start = eina_list_prev(start);
+        _fix_pos_off_and_whatnot(c, start);
+     }
+
+   if (!update_only) _item_free(c->obj, ti->parent.ln, &ti->parent);
+
+   free(str);
+}
+
 /* updates text item corresponsing to position off in n */
-static Eina_Bool
+static inline Eina_Bool
 _layout_pre_text_update(Ctxt *c, Evas_Object_Textblock_Node_Text *n)
 {
-   Eina_Unicode *str;
-   Evas_Object_Protected_Data *obj = eo_data_scope_get(c->obj, EVAS_OBJECT_CLASS);
    Evas_Object_Textblock_Item *it;
    Evas_Object_Textblock_Text_Item *ti = NULL;
-   int prev_glen;
    Evas_Object_Textblock_Dirty_Info *info;
+   Eina_List *lti;
 
    EINA_LIST_FREE(n->dirty_info, info)
      {
         /* must be text item because this is called only for handling cases of
          * dirty text items */
-        it = _layout_find_item_node_match(n, info->pos);
+        it = _layout_find_item_node_match(n, info->pos, &lti);
 
         if (it && (it->type != EVAS_TEXTBLOCK_ITEM_TEXT))
           {
@@ -5316,35 +5733,11 @@ _layout_pre_text_update(Ctxt *c, Evas_Object_Textblock_Node_Text *n)
         //Otherwise, handle other cases
         ti = _ITEM_TEXT(it);
 
-        /* Should not happen, but let's leave it for the meantime */
-        if (!ti->text_props.font_instance)
-           goto error;
+        _layout_pre_text_item_update(c, ti, lti, n, info->len);
 
-        /* get that string in the text node matching the item */
-        str = eina_unicode_strdup(
-              eina_ustrbuf_string_get(n->unicode));
-
-        prev_glen = ti->text_props.len;
-        /* Update the affected item's glyph information */
-        ENFN->font_text_props_info_update(ENDT,
-              ti->text_props.font_instance, str, &ti->text_props,
-              ti->text_props.text_offset, info->len, EVAS_TEXT_PROPS_MODE_SHAPE);
-
-        free(str);
-
-        /* update indices for next items that share the same glyph info */
-        _update_items_with_same_info(c->par, it, ti->text_props.len - prev_glen,
-              info->len);
-
-        _text_item_update_sizes(c, ti);
+        free(info);
      }
    return EINA_TRUE;
-
-error:
-   /* Again, code should not reach here, but adding this until it is
-    * stable enough */
-   _dirty_info_free(n);
-   return EINA_FALSE;
 }
 
 
@@ -11903,68 +12296,259 @@ _evas_textblock_format_offset_get(const Evas_Object_Textblock_Node_Format *n)
 }
 #endif
 
-#if 0
+#if 1
 /* Good for debugging */
+#define LPRINTF(text, ...) \
+   do { \
+        int _i; \
+        for (_i = 0; _i < level; _i++) \
+           printf("\t"); \
+   }while(0); \
+   printf(text, ##__VA_ARGS__)
+
+static void _ptnode(Evas_Object_Textblock_Node_Text *n, int level, Eina_Bool rec);
+static void _pfnode(Evas_Object_Textblock_Node_Format *n, int level, Eina_Bool rec);
+
+static void
+_pfnode(Evas_Object_Textblock_Node_Format *n, int level, Eina_Bool rec)
+{
+   Evas_Object_Textblock_Node_Text *tnode;
+   LPRINTF("Format Node: %p\n", n);
+   if (!n) return;
+   LPRINTF("format: '%s'\n", n->format);
+   LPRINTF("offset: %lu\n", n->offset);
+   LPRINTF("next = %p, prev = %p, last = %p\n", EINA_INLIST_GET(n)->next, EINA_INLIST_GET(n)->prev, EINA_INLIST_GET(n)->last);
+   if (rec) return;
+   tnode = n->text_node;
+   LPRINTF("[n->text_node]\n");
+   _ptnode(tnode, level + 1, EINA_TRUE);
+}
+
 EAPI void
 pfnode(Evas_Object_Textblock_Node_Format *n)
 {
-   printf("Format Node: %p\n", n);
-   printf("next = %p, prev = %p, last = %p\n", EINA_INLIST_GET(n)->next, EINA_INLIST_GET(n)->prev, EINA_INLIST_GET(n)->last);
-   printf("text_node = %p, offset = %u, visible = %d\n", n->text_node, (unsigned int) n->offset, n->visible);
-   printf("'%s'\n", n->format);
+   _pfnode(n, 0, EINA_FALSE);
+}
+
+static void
+_pfnodes(Evas_Object_Textblock_Node_Format *nodes, int level)
+{
+   Evas_Object_Textblock_Node_Format *n;
+   EINA_INLIST_FOREACH(nodes, n)
+     {
+        _pfnode(n, level, EINA_FALSE);
+     }
+}
+
+EAPI void
+pfnodes(Evas_Object_Textblock_Node_Format *nodes)
+{
+   _pfnodes(nodes, 0);
+}
+
+static void
+_ptnode(Evas_Object_Textblock_Node_Text *n, int level, Eina_Bool rec)
+{
+   Evas_Object_Textblock_Node_Format *fnode;
+   LPRINTF("Text Node: %p\n", n);
+   if (!n) return;
+   LPRINTF("'%ls'\n", eina_ustrbuf_string_get(n->unicode));
+   LPRINTF("next = %p, prev = %p, last = %p, is_new=%i\n", EINA_INLIST_GET(n)->next, EINA_INLIST_GET(n)->prev, EINA_INLIST_GET(n)->last, n->is_new);
+   if (rec) return;
+   fnode = n->format_node;
+   LPRINTF("[n->format_node]\n");
+   _pfnode(fnode, level + 1, EINA_TRUE);
 }
 
 EAPI void
 ptnode(Evas_Object_Textblock_Node_Text *n)
 {
-   printf("Text Node: %p\n", n);
-   printf("next = %p, prev = %p, last = %p\n", EINA_INLIST_GET(n)->next, EINA_INLIST_GET(n)->prev, EINA_INLIST_GET(n)->last);
-   printf("format_node = %p\n", n->format_node);
-   printf("'%ls'\n", eina_ustrbuf_string_get(n->unicode));
+   _ptnode(n, 0, EINA_FALSE);
+}
+
+static void
+_ptnodes(Evas_Object_Textblock_Node_Text *nodes, int level)
+{
+   Evas_Object_Textblock_Node_Text *n;
+   EINA_INLIST_FOREACH(nodes, n)
+     {
+        _ptnode(n, level, EINA_FALSE);
+     }
 }
 
 EAPI void
-pitem(Evas_Object_Textblock_Item *it)
+ptnodes(Evas_Object_Textblock_Node_Text *nodes)
+{
+   _ptnodes(nodes, 0);
+}
+
+static void
+_pitem(Evas_Object_Textblock_Item *it, int level)
 {
    Evas_Object_Textblock_Text_Item *ti;
    Evas_Object_Textblock_Format_Item *fi;
-   printf("Item: %p %s\n", it, (it->visually_deleted) ? "(visually deleted)" : "");
-   printf("Type: %s (%d)\n", (it->type == EVAS_TEXTBLOCK_ITEM_TEXT) ?
+   LPRINTF("Item: %p\n", it);
+   LPRINTF("%s\n",(it->visually_deleted) ? "(visually deleted)" : "");
+   LPRINTF("%s\n",(it->merge) ? "(merge)" : "");
+   LPRINTF("Type: %s (%d)\n", (it->type == EVAS_TEXTBLOCK_ITEM_TEXT) ?
          "TEXT" : "FORMAT", it->type);
-   printf("Text pos: %u Visual pos: %u\n", (unsigned int) it->text_pos, (unsigned int)
+   LPRINTF("Text pos: %u Visual pos: %u\n", (unsigned int) it->text_pos, (unsigned int)
 #ifdef BIDI_SUPPORT
          it->visual_pos
 #else
          it->text_pos
 #endif
          );
-   printf("Coords: x = %d w = %d adv = %d\n", (int) it->x, (int) it->w,
+   LPRINTF("Coords: x = %d w = %d adv = %d\n", (int) it->x, (int) it->w,
          (int) it->adv);
    if (it->type == EVAS_TEXTBLOCK_ITEM_TEXT)
      {
         Eina_Unicode *tmp;
+        char *utf8;
+        int utf8_len;
+
         ti = _ITEM_TEXT(it);
-        tmp = eina_unicode_strdup(GET_ITEM_TEXT(ti));
+        tmp = eina_unicode_strndup(GET_ITEM_TEXT(ti), ti->text_props.text_len);
         tmp[ti->text_props.text_len] = '\0';
-        printf("Text: '%ls'\n", tmp);
+        LPRINTF("Text:\n");
+        utf8_len = ti->text_props.text_len;
+        utf8 = eina_unicode_unicode_to_utf8(tmp, &utf8_len);
+        LPRINTF("%s", utf8);
+        LPRINTF("\n");
+        LPRINTF("Text Len: %lu\n", ti->text_props.text_len);
+        LPRINTF("Text Offset: %lu\n", ti->text_props.text_offset);
+        LPRINTF("Glyph Len: %lu\n", ti->text_props.len);
+        LPRINTF("Glyph Start: %lu\n", ti->text_props.start);
+        free(utf8);
         free(tmp);
      }
    else
      {
         fi = _ITEM_FORMAT(it);
-        printf("Format: '%s'\n", fi->item);
+        LPRINTF("Format: '%s'\n", fi->item);
+     }
+}
+
+EAPI void
+pitem(Evas_Object_Textblock_Item *it)
+{
+   _pitem(it, 0);
+}
+
+
+static void
+_ppar(Evas_Object_Textblock_Paragraph *par, int level)
+{
+   Evas_Object_Textblock_Item *it;
+   Eina_List *i;
+   LPRINTF("Paragraph (%p)\n", par);
+   if (!par) return;
+
+   LPRINTF("[TEXT NODE]\n");
+   _ptnode(par->text_node, level + 1, EINA_FALSE);
+
+   LPRINTF("ITEMS:\n");
+   EINA_LIST_FOREACH(par->logical_items, i, it)
+     {
+        LPRINTF("[ITEM]\n");
+        _pitem(it, level + 1);
      }
 }
 
 EAPI void
 ppar(Evas_Object_Textblock_Paragraph *par)
 {
-   Evas_Object_Textblock_Item *it;
+   _ppar(par, 0);
+}
+
+EAPI void
+_ppar_lines(Evas_Object_Textblock_Paragraph *par, int level)
+{
+   Evas_Object_Textblock_Line *ln;
+   int line_no = 0;
+   EINA_INLIST_FOREACH(par->lines, ln)
+     {
+        Evas_Object_Textblock_Item *it;
+
+        LPRINTF("[-- LINE NO #%d --]\n", line_no++);
+
+        EINA_INLIST_FOREACH(ln->items, it)
+          {
+             _pitem(it, level + 1);
+          }
+     }
+}
+
+EAPI void
+ppar_lines(Evas_Object_Textblock_Paragraph *par)
+{
+   _ppar_lines(par, 0);
+}
+
+static void
+_ppars(Evas_Object_Textblock_Paragraph *pars, int level)
+{
+   Evas_Object_Textblock_Paragraph *par;
+   EINA_INLIST_FOREACH(pars, par)
+     {
+        LPRINTF("[Paragraph]\n");
+        _ppar(par, level + 1);
+     }
+}
+
+EAPI void
+ppars(Evas_Object_Textblock_Paragraph *pars)
+{
+   _ppars(pars, 0);
+}
+
+EAPI void
+ptextblock(Evas_Textblock_Data *o)
+{
+   printf("[======   [Textblock]  =========] (%p)\n", o);
+   if (!o) return;
+   printf("###### Text Nodes ######\n");
+   _ptnodes(o->text_nodes, 1);
+   printf("###### Format Nodes ######\n");
+   _pfnodes(o->format_nodes, 1);
+   printf("###### Paragraphs ######\n");
+   _ppars(o->paragraphs, 1);
+}
+
+EAPI void
+ptextprops(Evas_Text_Props *props)
+{
+   printf("[Props]\n");
+   printf("  start=%d\n", props->start);
+   printf("  text_offset=%d\n", props->text_offset);
+   printf("  text_len=%d\n", props->text_len);
+   printf("  len=%d\n", props->len);
+   int i = props->start;
+   int end = props->start + props->len;
+   for (;i < end; i++)
+     {
+        printf("  Info:\n");
+        printf("    info->cluster=%d\n", props->info->ot[i].source_cluster);
+        printf("    info->glyph->index=%d\n", props->info->glyph[i].index);
+        printf("    info->glyph->pen_after=%d\n", props->info->glyph[i].pen_after);
+        printf("    info->glyph->width=%d\n", props->info->glyph[i].width);
+     }
+}
+
+EAPI void
+ptextprops_items(Evas_Object_Textblock_Paragraph *par)
+{
    Eina_List *i;
+   Evas_Object_Textblock_Item *it;
    EINA_LIST_FOREACH(par->logical_items, i, it)
      {
-        printf("***********************\n");
-        pitem(it);
+        printf("[Item] (text_pos=%d)", it->text_pos);
+        if (it->type == EVAS_TEXTBLOCK_ITEM_TEXT)
+          {
+             ptextprops(&_ITEM_TEXT(it)->text_props);
+          }
+        else
+           printf("\n");
      }
 }
 
