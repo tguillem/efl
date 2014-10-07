@@ -532,17 +532,62 @@ evas_common_font_ot_hard_split_text_props(Evas_Text_Props *props_left, Evas_Text
    if (props_right)
      {
         Evas_Text_Props_Info *right_info = props_right->info;
-        /* handle right portion */
-        if (info_len == 0)
-          {
-
-          }
         right_len = info_len - (props_mid->start + props_mid->len);
         right_info->glyph = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
         right_info->ot = malloc(right_len * sizeof(Evas_Font_OT_Info));
         memcpy(right_info->glyph, old_glyph + left_len + mid_len, right_len * sizeof(Evas_Font_Glyph_Info));
         memcpy(right_info->ot, old_ot + left_len + mid_len, right_len * sizeof(Evas_Font_OT_Info));
         props_right->start = 0;
+        props_right->info->len = right_len;
+     }
+
+   if (props_left) // only free this is we now have new arrays in props_left
+     {
+        free(old_ot);
+        free(old_glyph);
+     }
+
+   /* AGAIN: no reshaping is done here. Returned result should be handled
+    * afterwards so everything is valid again */
+   return EINA_TRUE;
+}
+
+EAPI Eina_Bool
+evas_common_font_ot_hard_split_text_props_rtl(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right, Evas_Text_Props_Mode mode)
+{
+   Evas_Font_Glyph_Info *old_glyph;
+   Evas_Font_OT_Info *old_ot;
+   size_t left_len = 0, right_len = 0, mid_len = 0;
+   size_t info_len = props_mid->info->len;
+   Evas_Text_Props_Info *info = props_mid->info;
+
+   old_glyph = info->glyph;
+   old_ot = info->ot;
+
+   mid_len = props_mid->len;
+
+   if (props_left)
+     {
+        Evas_Text_Props_Info *left_info = props_left->info;
+        left_len = info_len - (props_mid->start + props_mid->len);
+        left_info->glyph = malloc(left_len * sizeof(Evas_Font_Glyph_Info));
+        left_info->ot = malloc(left_len * sizeof(Evas_Font_OT_Info));
+        memcpy(left_info->glyph, old_glyph + right_len + mid_len, left_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(left_info->ot, old_ot + right_len + mid_len, left_len * sizeof(Evas_Font_OT_Info));
+        props_left->start = 0;
+        props_left->info->len = left_len;
+     }
+
+   if (props_right)
+     {
+        Evas_Text_Props_Info *right_info = props_right->info;
+        /* handle right portion */
+        right_len = props_mid->start;
+        right_info->glyph = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
+        right_info->ot = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(right_info->glyph, old_glyph, right_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(right_info->ot, old_ot, right_len * sizeof(Evas_Font_OT_Info));
+        /* props_right->start remains the same */
         props_right->info->len = right_len;
      }
 

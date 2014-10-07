@@ -199,6 +199,9 @@ EAPI Eina_Bool
 evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right, size_t text_len, Evas_Text_Props_Mode mode);
 
 EAPI Eina_Bool
+evas_common_text_props_hard_split_rtl(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right, size_t text_len, Evas_Text_Props_Mode mode);
+
+EAPI Eina_Bool
 evas_common_text_props_append(void *_fi, const Eina_Unicode *text, Evas_Text_Props *text_props, size_t text_pos, size_t len, Evas_Text_Props_Mode mode);
 
 EAPI Eina_Bool

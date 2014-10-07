@@ -5441,7 +5441,10 @@ Evas_Object_Textblock_Text_Item *right_ti, size_t text_len)
         props_right = &right_ti->text_props;
      }
 
+
    evas_common_text_props_hard_split(props_left, props_mid, props_right, text_len, 0);
+
+   //fix start of props_left
 
    if (props_right)
      {
@@ -5457,34 +5460,72 @@ Evas_Object_Textblock_Text_Item *right_ti, size_t text_len)
              evas_common_text_props_content_unref(props_mid);
              evas_common_text_props_content_ref(props_right);
           }
+        it = eina_list_data_get(right);
+        it->merge = EINA_FALSE;
      }
 }
 
+static inline Eina_List *
+_split_first_item_get(Eina_List *i)
+{
+   while(i)
+     {
+        Evas_Object_Textblock_Item *it;
+        it = eina_list_data_get(i);
+        if (!it->merge) return i;
+        i = eina_list_prev(i);
+     }
+   return NULL;
+}
+
+static inline void
+_fix_merged(Ctxt *c, Eina_List *start)
+{
+   Eina_List *i;
+   Evas_Object_Textblock_Item *it;
+   Evas_Object_Textblock_Text_Item *prev_ti;
+   Eina_Bool rtl;
+
+   if (!start) return;
+
+   prev_ti = eina_list_data_get(start);
+   rtl = (prev_ti->text_props.bidi_dir == EVAS_BIDI_DIRECTION_RTL);
+   prev_ti->text_props.start =  rtl ? prev_ti->text_props.info->len - prev_ti->text_props.len : 0;
+   start = eina_list_next(start);
+
+   EINA_LIST_FOREACH(start, i, it)
+     {
+        if (!it->merge) break;
+
+        it->text_pos = prev_ti->parent.text_pos + prev_ti->text_props.text_len;
+        _ITEM_TEXT(it)->text_props.text_offset = prev_ti->text_props.text_offset + prev_ti->text_props.text_len;
+        if (rtl)
+          {
+             _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start - _ITEM_TEXT(it)->text_props.len;
+          }
+        else
+          {
+             _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + prev_ti->text_props.len;
+          }
+
+        prev_ti = _ITEM_TEXT(it);
+     }
+}
 /* updates all positions, offsets and whatnot :) */
 static inline void
-_fix_pos_off_and_whatnot(Ctxt *c, Eina_List *start)
+_fix_pos_off(Ctxt *c, Eina_List *start)
 {
    Evas_Object_Textblock_Item *it, *prev_it;
    size_t prev_len;
    Eina_List *i;
 
-   if (!start)
-     {
-        start = c->par->logical_items;
-     }
+   if (!start) return;
    prev_it = eina_list_data_get(start);
    prev_len = GET_ITEM_LEN(prev_it);
    start = eina_list_next(start);
    EINA_LIST_FOREACH(start, i, it)
      {
         it->text_pos = prev_it->text_pos + prev_len;
-
-        if (it->merge)
-          {
-             _ITEM_TEXT(it)->text_props.text_offset = _ITEM_TEXT(prev_it)->text_props.text_offset + prev_len;
-             _ITEM_TEXT(it)->text_props.start = _ITEM_TEXT(prev_it)->text_props.start + _ITEM_TEXT(prev_it)->text_props.len;
-          }
-
         prev_it = it;
         prev_len = GET_ITEM_LEN(it);
      }
@@ -5551,6 +5592,9 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
    Evas_Object_Textblock_Text_Item *merge_left_ti = NULL;
    Evas_Object_Textblock_Text_Item *merge_right_ti = NULL;
 
+   Eina_Bool first_run_merge = EINA_FALSE;
+   Eina_Bool last_run_merge = EINA_FALSE;
+
 
    Evas_Object_Protected_Data *obj = eo_data_scope_get(c->obj, EVAS_OBJECT_CLASS);
 
@@ -5568,6 +5612,7 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
         int prev_len = ti->text_props.len;
         int prev_tlen = ti->text_props.text_len;
         int diff, difft;
+        Eina_List *start;
 
         run = eina_list_data_get(font_runs);
         evas_common_text_props_content_update(
@@ -5576,6 +5621,8 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
 
         diff = ti->text_props.len - prev_len;
         difft = ti->text_props.text_len - prev_tlen;
+
+        _fix_merged(c, lti);
 
         goto end;
      }
@@ -5640,6 +5687,7 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
                   if(_handle_first_run(c, str, first_run, merge_left_ti, EVAS_TEXT_PROPS_MODE_SHAPE))
                     {
                        _text_item_update_sizes(c, merge_left_ti);
+                       first_run_merge = EINA_TRUE;
                        continue;
                     }
                }
@@ -5648,6 +5696,7 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
                   if(_handle_last_run(c, str, run, merge_right_ti, EVAS_TEXT_PROPS_MODE_SHAPE))
                     {
                        _text_item_update_sizes(c, merge_right_ti);
+                       last_run_merge = EINA_TRUE;
                        break; // or continue - this is the last node
                     }
                }
@@ -5692,16 +5741,26 @@ end:
    if (update_only)
       _text_item_update_sizes(c, ti);
 
+   //fix offsets info for items
      {
         Eina_List *start = NULL;
 
-        start = eina_list_next(lti);
         if (!update_only)
           {
              c->par->logical_items = eina_list_remove_list(c->par->logical_items, lti);
           }
-        start = eina_list_prev(start);
-        _fix_pos_off_and_whatnot(c, start);
+        if (first_run_merge)
+          {
+             start = _split_first_item_get(left);
+             _fix_merged(c, start);
+          }
+        if (last_run_merge)
+          {
+             start = _split_first_item_get(right);
+             _fix_merged(c, start);
+          }
+        start = c->par->logical_items;
+        _fix_pos_off(c, start);
      }
 
    if (!update_only) _item_free(c->obj, ti->parent.ln, &ti->parent);
@@ -12350,9 +12409,20 @@ static void
 _ptnode(Evas_Object_Textblock_Node_Text *n, int level, Eina_Bool rec)
 {
    Evas_Object_Textblock_Node_Format *fnode;
+   Eina_Unicode *tmp;
+   char *utf8;
+   size_t len;
+   int utf8_len;
    LPRINTF("Text Node: %p\n", n);
    if (!n) return;
-   LPRINTF("'%ls'\n", eina_ustrbuf_string_get(n->unicode));
+   len = eina_ustrbuf_length_get(n->unicode);
+   tmp = eina_unicode_strndup(eina_ustrbuf_string_get(n->unicode), len);
+   tmp[len] = '\0';
+   LPRINTF("Node Text:\n");
+   utf8_len = len;
+   utf8 = eina_unicode_unicode_to_utf8(tmp, &utf8_len);
+   LPRINTF("%s", utf8);
+   LPRINTF("\n");
    LPRINTF("next = %p, prev = %p, last = %p, is_new=%i\n", EINA_INLIST_GET(n)->next, EINA_INLIST_GET(n)->prev, EINA_INLIST_GET(n)->last, n->is_new);
    if (rec) return;
    fnode = n->format_node;

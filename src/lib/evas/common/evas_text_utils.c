@@ -325,6 +325,7 @@ evas_common_text_props_cut(Evas_Text_Props *props1,
 
    return EINA_TRUE;
 }
+
 /**
  * @internal
  * Description here
@@ -343,7 +344,10 @@ evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *
         props_right->info->refcount = 1;
      }
 
-   evas_common_font_ot_hard_split_text_props(props_left, props_mid, props_right, mode);
+   if (props_mid->bidi_dir == EVAS_BIDI_DIRECTION_RTL)
+      evas_common_font_ot_hard_split_text_props_rtl(props_left, props_mid, props_right, mode);
+   else
+      evas_common_font_ot_hard_split_text_props(props_left, props_mid, props_right, mode);
    /* Fields associated with glyph/ot info were updated in the above call */
    if (props_right)
       {
@@ -351,6 +355,7 @@ evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *
          props_right->text_offset = 0;
          props_right->changed = EINA_TRUE;
       }
+
    if (props_left)
       props_left->changed = EINA_TRUE;
 
