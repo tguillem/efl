@@ -5441,15 +5441,16 @@ Evas_Object_Textblock_Text_Item *right_ti, size_t text_len)
         props_right = &right_ti->text_props;
      }
 
-
    evas_common_text_props_hard_split(props_left, props_mid, props_right, text_len, 0);
 
    //fix start of props_left
-
    if (props_right)
      {
         Eina_List *i;
         Evas_Object_Textblock_Item *it;
+
+        it = eina_list_data_get(right);
+        it->merge = EINA_FALSE;
 
         right = eina_list_next(right);
         EINA_LIST_FOREACH(right, i, it)
@@ -5460,13 +5461,13 @@ Evas_Object_Textblock_Text_Item *right_ti, size_t text_len)
              evas_common_text_props_content_unref(props_mid);
              evas_common_text_props_content_ref(props_right);
           }
-        it = eina_list_data_get(right);
-        it->merge = EINA_FALSE;
      }
 }
 
+
+
 static inline Eina_List *
-_split_first_item_get(Eina_List *i)
+_split_first_item_get_ltr(Eina_List *i)
 {
    while(i)
      {
@@ -5478,19 +5479,38 @@ _split_first_item_get(Eina_List *i)
    return NULL;
 }
 
-static inline void
-_fix_merged(Ctxt *c, Eina_List *start)
+static inline Eina_List *
+_split_first_item_get_rtl(Eina_List *i)
+{
+   while(i)
+     {
+        Evas_Object_Textblock_Item *it;
+        it = eina_list_data_get(i);
+        if (!it->merge) return i;
+        i = eina_list_prev(i);
+     }
+   return NULL;
+}
+
+static inline Eina_List *
+_split_first_item_get_(Eina_List *i, Eina_Bool rtl)
+{
+   if (rtl) return _split_first_item_get_rtl(i);
+   return _split_first_item_get_ltr(i);
+}
+
+static void
+_fix_merged_rtl(Ctxt *c, Eina_List *l)
 {
    Eina_List *i;
    Evas_Object_Textblock_Item *it;
    Evas_Object_Textblock_Text_Item *prev_ti;
-   Eina_Bool rtl;
 
-   if (!start) return;
+   Eina_List *start = _split_first_item_get_ltr(l);
 
    prev_ti = eina_list_data_get(start);
-   rtl = (prev_ti->text_props.bidi_dir == EVAS_BIDI_DIRECTION_RTL);
-   prev_ti->text_props.start =  rtl ? prev_ti->text_props.info->len - prev_ti->text_props.len : 0;
+   prev_ti->text_props.start =  prev_ti->text_props.info->len - 1;
+   prev_ti->text_props.text_offset = 0;
    start = eina_list_next(start);
 
    EINA_LIST_FOREACH(start, i, it)
@@ -5499,18 +5519,43 @@ _fix_merged(Ctxt *c, Eina_List *start)
 
         it->text_pos = prev_ti->parent.text_pos + prev_ti->text_props.text_len;
         _ITEM_TEXT(it)->text_props.text_offset = prev_ti->text_props.text_offset + prev_ti->text_props.text_len;
-        if (rtl)
-          {
-             _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start - _ITEM_TEXT(it)->text_props.len;
-          }
-        else
-          {
-             _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + prev_ti->text_props.len;
-          }
-
+        _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + _ITEM_TEXT(it)->text_props.len;
         prev_ti = _ITEM_TEXT(it);
      }
 }
+
+static inline void
+_fix_merged_ltr(Ctxt *c, Eina_List *l)
+{
+   Eina_List *i;
+   Evas_Object_Textblock_Item *it;
+   Evas_Object_Textblock_Text_Item *prev_ti;
+
+   Eina_List *start = _split_first_item_get_ltr(l);
+
+   prev_ti = eina_list_data_get(start);
+   prev_ti->text_props.start =  0;
+   prev_ti->text_props.text_offset = 0;
+   start = eina_list_next(start);
+
+   EINA_LIST_FOREACH(start, i, it)
+     {
+        if (!it->merge) break;
+
+        it->text_pos = prev_ti->parent.text_pos + prev_ti->text_props.text_len;
+        _ITEM_TEXT(it)->text_props.text_offset = prev_ti->text_props.text_offset + prev_ti->text_props.text_len;
+        _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + prev_ti->text_props.len;
+        prev_ti = _ITEM_TEXT(it);
+     }
+}
+
+static void _fix_merged(Ctxt *c, Eina_List *iti, Eina_Bool rtl)
+{
+   if (rtl) _fix_merged_rtl(c, iti);
+   else _fix_merged_ltr(c, iti);
+
+}
+
 /* updates all positions, offsets and whatnot :) */
 static inline void
 _fix_pos_off(Ctxt *c, Eina_List *start)
@@ -5612,7 +5657,6 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
         int prev_len = ti->text_props.len;
         int prev_tlen = ti->text_props.text_len;
         int diff, difft;
-        Eina_List *start;
 
         run = eina_list_data_get(font_runs);
         evas_common_text_props_content_update(
@@ -5622,7 +5666,7 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
         diff = ti->text_props.len - prev_len;
         difft = ti->text_props.text_len - prev_tlen;
 
-        _fix_merged(c, lti);
+        _fix_merged(c, lti, (ti->text_props.bidi_dir == EVAS_BIDI_DIRECTION_RTL));
 
         goto end;
      }
@@ -5751,13 +5795,11 @@ end:
           }
         if (first_run_merge)
           {
-             start = _split_first_item_get(left);
-             _fix_merged(c, start);
+             _fix_merged(c, left, (merge_left_ti->text_props.bidi_dir == EVAS_BIDI_DIRECTION_RTL));
           }
         if (last_run_merge)
           {
-             start = _split_first_item_get(right);
-             _fix_merged(c, start);
+             _fix_merged(c, right, (merge_right_ti->text_props.bidi_dir == EVAS_BIDI_DIRECTION_RTL));
           }
         start = c->par->logical_items;
         _fix_pos_off(c, start);
