@@ -597,7 +597,6 @@ evas_common_font_ot_hard_split_text_props_rtl(Evas_Text_Props *props_left, Evas_
         left_info->ot = malloc(left_len * sizeof(Evas_Font_OT_Info));
         memcpy(left_info->glyph, old_glyph + props_mid->start + props_mid->len, left_len * sizeof(Evas_Font_Glyph_Info));
         memcpy(left_info->ot, old_ot + props_mid->start + props_mid->len, left_len * sizeof(Evas_Font_OT_Info));
-        //no need to change left's start
         props_left->start = 0;
         props_left->info->len = left_len;
      }

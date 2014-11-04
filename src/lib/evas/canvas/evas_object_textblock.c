@@ -5439,27 +5439,67 @@ Evas_Object_Textblock_Text_Item *right_ti, size_t text_len)
    if (right_ti)
      {
         props_right = &right_ti->text_props;
+        right_ti->parent.merge = EINA_FALSE;
      }
 
    evas_common_text_props_hard_split(props_left, props_mid, props_right, text_len, 0);
 
-   //fix start of props_left
    if (props_right)
      {
-        Eina_List *i;
+        Eina_List *i, *start;
         Evas_Object_Textblock_Item *it;
 
-        it = eina_list_data_get(right);
-        it->merge = EINA_FALSE;
-
-        right = eina_list_next(right);
-        EINA_LIST_FOREACH(right, i, it)
+        start = eina_list_next(right);
+        EINA_LIST_FOREACH(start, i, it)
           {
              if (!it->merge) break;
 
              _ITEM_TEXT(it)->text_props.info = props_right->info;
              evas_common_text_props_content_unref(props_mid);
              evas_common_text_props_content_ref(props_right);
+          }
+     }
+
+   /* fix start positions and clusters */
+   if (left_ti && left_ti->parent.merge && (mid_ti->text_props.bidi_dir == EVAS_BIDI_DIRECTION_RTL))
+     {
+        Eina_List *i;
+        Evas_Object_Textblock_Item *it;
+        Evas_Object_Textblock_Text_Item *prev_ti = left_ti;
+        Eina_List *l = eina_list_prev(left);
+
+        i = l;
+        do
+          {
+             /* first prev exists since we checked left_ti->parent.merge */
+             it = eina_list_data_get(i);
+             _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + prev_ti->text_props.len;
+             if (!it->merge) break;
+
+             prev_ti = _ITEM_TEXT(it);
+             i = eina_list_prev(i);
+          } while(it->merge);
+
+     }
+
+   /* fix start positions and clusters */
+   if (right_ti)
+     {
+        Eina_List *i;
+        Evas_Object_Textblock_Item *it;
+        Evas_Object_Textblock_Text_Item *prev_ti = right_ti;
+        Eina_List *l = eina_list_next(right);
+
+        EINA_LIST_FOREACH(l, i, it)
+          {
+             if (!it->merge) break;
+             if (mid_ti->text_props.bidi_dir != EVAS_BIDI_DIRECTION_RTL)
+               {
+                  _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + prev_ti->text_props.len;
+               }
+             _ITEM_TEXT(it)->text_props.text_offset = prev_ti->text_props.text_offset + prev_ti->text_props.text_len;
+
+             prev_ti = _ITEM_TEXT(it);
           }
      }
 }
@@ -12628,6 +12668,33 @@ ptextblock(Evas_Textblock_Data *o)
 }
 
 EAPI void
+ptextpropsinfo(Evas_Text_Props *props)
+{
+   size_t i;
+   Evas_Text_Props_Info *info = props->info;
+   printf("  Info:\n");
+   int cur = 0;
+   for (i = 0; i < props->info->len; i++)
+     {
+        if (!cur && (i >= props->start))
+          {
+             cur = 1;
+             printf("****** CURRENT ITEM **************************\n");
+          }
+        else if ((cur == 1) && (i >= props->start + props->len))
+          {
+             cur = 2;
+             printf("***************************************\n");
+          }
+        printf("    [idx=%lu]\n", i);
+        printf("    info->cluster=%lu\n", info->ot[i].source_cluster);
+        printf("    info->glyph->index=%d\n", info->glyph[i].index);
+        printf("    info->glyph->pen_after=%d\n", info->glyph[i].pen_after);
+        printf("    info->glyph->width=%d\n", info->glyph[i].width);
+     }
+}
+
+EAPI void
 ptextprops(Evas_Text_Props *props)
 {
    printf("[Props]\n");
@@ -12648,13 +12715,14 @@ ptextprops(Evas_Text_Props *props)
 }
 
 EAPI void
-ptextprops_items(Evas_Object_Textblock_Paragraph *par)
+ptextprops_items(Eina_List *start, Eina_List *skip)
 {
    Eina_List *i;
    Evas_Object_Textblock_Item *it;
-   EINA_LIST_FOREACH(par->logical_items, i, it)
+   EINA_LIST_FOREACH(start, i, it)
      {
-        printf("[Item] (text_pos=%d)", it->text_pos);
+        if (i == skip) continue;
+        printf("[Item] (text_pos=%lu)", it->text_pos);
         if (it->type == EVAS_TEXTBLOCK_ITEM_TEXT)
           {
              ptextprops(&_ITEM_TEXT(it)->text_props);

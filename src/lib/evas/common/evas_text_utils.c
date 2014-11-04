@@ -326,6 +326,21 @@ evas_common_text_props_cut(Evas_Text_Props *props1,
    return EINA_TRUE;
 }
 
+static inline void
+_rectify_cluster_indices(Evas_Text_Props *props, int clust_idx_old)
+{
+   int clust_idx_new = props->text_offset; //now it's 0, because of hard split
+   int clust_diff = clust_idx_new - clust_idx_old;
+   size_t pos;
+
+   for (pos = 0; pos < props->info->len; pos++)
+     {
+        /* rectify cluster indices */
+        props->info->ot[pos].source_cluster += clust_diff;
+     }
+
+}
+
 /**
  * @internal
  * Description here
@@ -350,14 +365,27 @@ evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *
       evas_common_font_ot_hard_split_text_props(props_left, props_mid, props_right, mode);
    /* Fields associated with glyph/ot info were updated in the above call */
    if (props_right)
-      {
-         props_mid->info->refcount--; /* deattaching right_props */
-         props_right->text_offset = 0;
-         props_right->changed = EINA_TRUE;
-      }
+     {
+        props_mid->info->refcount--; /* deattaching right_props */
+        props_right->changed = EINA_TRUE;
+        if (props_mid->bidi_dir == EVAS_BIDI_DIRECTION_RTL)
+          {
+             props_right->text_offset = 0;
+             int clust_idx_old = props_right->info->ot[props_right->info->len - 1].source_cluster;
+             _rectify_cluster_indices(props_right, clust_idx_old);
+          }
+     }
 
    if (props_left)
-      props_left->changed = EINA_TRUE;
+     {
+        if (props_mid->bidi_dir != EVAS_BIDI_DIRECTION_RTL)
+          {
+             props_left->text_offset = 0;
+             int clust_idx_old = props_right->info->ot[0].source_cluster;
+             _rectify_cluster_indices(props_right, clust_idx_old);
+          }
+        props_left->changed = EINA_TRUE;
+     }
 
    return EINA_TRUE;
 }
