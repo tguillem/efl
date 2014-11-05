@@ -207,19 +207,14 @@ elua_dostr(lua_State *L, const char *chunk, const char *chname)
 static Eina_Bool
 elua_loadapp(lua_State *L, const char *appname)
 {
-   printf("4 elua main 1\n");
    lua_rawgeti(L, LUA_REGISTRYINDEX, elua_appload_ref);
    lua_pushstring(L, appname);
-   printf("4 elua main 2\n");
    lua_call(L, 1, 2);
-   printf("4 elua main 3\n");
    if (lua_isnil(L, -2))
      {
-        printf("4 elua main 3B\n");
         lua_remove(L, -2);
         return EINA_FALSE;
      }
-   printf("4 elua main 4\n");
    lua_pop(L, 1);
    return EINA_TRUE;
 }
@@ -231,7 +226,6 @@ elua_doscript(lua_State *L, int argc, char **argv, int n, int *quit)
    const char *fname = argv[n];
    int narg = elua_getargs(L, argc, argv, n);
    lua_setglobal(L, "arg");
-   printf("3 elua main 1\n");
    if (fname[0] == '-' && !fname[1])
      {
         fname = NULL;
@@ -252,18 +246,15 @@ elua_doscript(lua_State *L, int argc, char **argv, int n, int *quit)
      }
    else
      {
-        printf("3 elua main 2A\n");
         status = elua_loadfile(L, fname);
      }
    lua_insert(L, -(narg + 1));
    if (!status)
      {
-         printf("3 elua main 3\n");
          status = elua_docall(L, narg, 1);
      }
    else
      {
-        printf("3 elua main 3A\n");
         lua_pop(L, narg);
      }
    if (!status)
@@ -271,7 +262,6 @@ elua_doscript(lua_State *L, int argc, char **argv, int n, int *quit)
         *quit = lua_toboolean(L, -1);
         lua_pop(L, 1);
      }
-   printf("3 elua main 4: %d\n", status);
    return elua_report(L, status);
 }
 
@@ -418,7 +408,7 @@ elua_main(lua_State *L)
    char       corefbuf[PATH_MAX];
 
    int ch;
-   printf("2 elua main 1\n");
+
    struct Main_Data *m = (struct Main_Data*)lua_touserdata(L, 1);
 
    int    argc = m->argc;
@@ -431,7 +421,7 @@ elua_main(lua_State *L)
 #endif
 
    elua_progname = (argv[0] && argv[0][0]) ? argv[0] : "elua";
-   printf("2 elua main 2\n");
+
    while ((ch = getopt_long(argc, argv, "+LhC:M:A:e:l:I:E", lopt, NULL)) != -1)
      {
         switch (ch)
@@ -461,17 +451,17 @@ elua_main(lua_State *L)
                }
           }
      }
-   printf("2 elua main 3\n");
+
    INF("arguments parsed");
 
    lua_gc(L, LUA_GCSTOP, 0);
-   printf("2 elua main 4\n");
+
    luaL_openlibs(L);
 
    elua_prefix = eina_prefix_new(elua_progname, elua_main, "ELUA", "elua", NULL,
                                  PACKAGE_BIN_DIR, "", PACKAGE_DATA_DIR,
                                  LOCALE_DIR);
-    printf("2 elua main 5\n");
+
    if (!elua_prefix)
      {
         ERR("could not find elua prefix");
@@ -497,7 +487,6 @@ elua_main(lua_State *L)
           }
      }
    snprintf(modfile, sizeof(modfile), "%s/module.lua", coref);
-   printf("2 elua main 6\n");
    if (elua_report(L, elua_loadfile(L, modfile)))
      {
         m->status = 1;
@@ -512,7 +501,6 @@ elua_main(lua_State *L)
    lua_createtable(L, 0, 0);
    luaL_register(L, NULL, cutillib);
    lua_call(L, 2, 0);
-   printf("2 elua main 7\n");
 
    snprintf(modfile, sizeof(modfile), "%s/gettext.lua", coref);
    if (elua_report(L, elua_loadfile(L, modfile)))
@@ -520,7 +508,6 @@ elua_main(lua_State *L)
         m->status = 1;
         return 0;
      }
-   printf("2 elua main 8\n");
    lua_createtable(L, 0, 0);
    luaL_register(L, NULL, gettextlib);
 #ifdef ENABLE_NLS
@@ -530,7 +517,7 @@ elua_main(lua_State *L)
    lua_setfield(L, -2, "dngettext");
 #endif
    lua_call(L, 1, 0);
-   printf("2 elua main 9\n");
+
    elua_register_cache(L);
    lua_gc(L, LUA_GCRESTART, 0);
 
@@ -560,14 +547,13 @@ elua_main(lua_State *L)
                 break;
           }
      }
-   printf("2 elua main 10\n");
+
    /* cleanup */
    EINA_LIST_FREE(largs, data) free(data);
 
    /* run script or execute sdin as file */
    if (optind < argc)
      {
-        printf("2 elua main 11\n");
         int quit = 0;
         if ((m->status = elua_doscript(L, argc, argv, optind, &quit))) return 0;
         if (quit) return 0;
@@ -580,9 +566,9 @@ elua_main(lua_State *L)
         lua_pop(L, 1);
         if (quit) return 0;
      }
-   printf("2 elua main 12\n");
+
    ecore_main_loop_begin();
-   printf("2 elua main 13\n");
+
    return 0;
 }
 
@@ -592,24 +578,22 @@ main(int argc, char **argv)
    struct Main_Data m;
    lua_State *L = NULL;
 
-   printf("ELUA MAIN\n");
 #ifdef ENABLE_NLS
    setlocale(LC_ALL, "");
    bindtextdomain(PACKAGE, LOCALE_DIR);
    bind_textdomain_codeset(PACKAGE, "UTF-8");
    textdomain(PACKAGE);
 #endif
-   printf("elua main 2\n");
 
    eina_init();
-   printf("elua main 3\n");
+
    if (!(el_log_domain = eina_log_domain_register("elua", EINA_COLOR_ORANGE)))
      {
         printf("cannot set elua log domain\n");
         ERR("could not set elua log domain.");
         el_log_domain = EINA_LOG_DOMAIN_GLOBAL;
      }
-   printf("elua main 4\n");
+
    INF("elua logging initialized: %d", el_log_domain);
 
    if (!(L = luaL_newstate()))
@@ -619,14 +603,14 @@ main(int argc, char **argv)
      }
 
    elua_state = L;
-   printf("elua main 5\n");
+
    INF("elua lua state created");
 
    m.argc   = argc;
    m.argv   = argv;
    m.status = 0;
-   printf("elua main 6\n");
+
    elua_shutdown(L, !!(lua_cpcall(L, elua_main, &m) || m.status));
-   printf("elua main 7\n");
+
    return 0; /* never gets here */
 }

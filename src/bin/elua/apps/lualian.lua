@@ -1,14 +1,11 @@
 -- Lualian application
 -- for use with Elua
 
-print("lualian 1")
 local lualian = require("lualian")
-print("lualian 2")
 local  getopt = require("getopt")
-print("lualian 3")
 
 local gen_file = function(opts, i, fname)
-    local printv  = print
+    local printv  = opts["v"] and print or function() end
     printv("Generating for file: " .. fname)
     local ofile   = opts["o"] and opts["o"][i] or nil
     local fstream = io.stdout
@@ -21,11 +18,9 @@ local gen_file = function(opts, i, fname)
     else
         printv("  Output file: printing to stdout...")
     end
-    print("lualian generating")
     lualian.generate(fname, fstream)
-    print("lualian generated")
 end
-print("lualian 4")
+
 getopt.parse {
     usage = "Usage: %prog [OPTIONS] file1.eo file2.eo ... fileN.eo",
     args  = arg,
@@ -52,26 +47,19 @@ getopt.parse {
         getopt.help(parser, io.stderr)
     end,
     done_cb = function(parser, opts, args)
-        print("lualian done cb")
         if not opts["h"] then
             for i, v in ipairs(opts["I"] or {}) do
-                print("lualian include")
                 lualian.include_dir(v)
             end
-            print("lualian included")
             if os.getenv("EFL_RUN_IN_TREE") then
                 lualian.system_directory_scan()
             end
-            print("lualian load eot")
             lualian.load_eot_files()
-            print("lualian gen")
             for i, fname in ipairs(args) do
-                print("lualian gen step")
                 gen_file(opts, i, fname)
             end
-            print("lualian gend")
         end
     end
 }
-print("lualian 5")
+
 return true
