@@ -383,11 +383,13 @@ evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *
 
    if (props_left)
      {
+        /* BAD BAD BAD
         if (props_mid->bidi_dir != EVAS_BIDI_DIRECTION_RTL)
           {
              int clust_idx_old = props_left->info->ot[0].source_cluster;
              _rectify_cluster_indices(props_left, clust_idx_old);
           }
+          */
         props_left->changed = EINA_TRUE;
      }
 
