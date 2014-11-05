@@ -244,6 +244,10 @@ elua_doscript(lua_State *L, int argc, char **argv, int n, int *quit)
           status = !elua_loadapp(L, fname);
         printf("3 elua main 3\n");
      }
+   else if (!strcmp(fname, "lualian"))
+     {
+        status = !elua_loadapp(L, fname);
+     }
    else
      {
         status = elua_loadfile(L, fname);
