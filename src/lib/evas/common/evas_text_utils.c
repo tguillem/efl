@@ -329,7 +329,7 @@ evas_common_text_props_cut(Evas_Text_Props *props1,
 static inline void
 _rectify_cluster_indices(Evas_Text_Props *props, int clust_idx_old)
 {
-   int clust_idx_new = props->text_offset; //now it's 0, because of hard split
+   int clust_idx_new = props->text_offset;
    int clust_diff = clust_idx_new - clust_idx_old;
    size_t pos;
 
@@ -380,9 +380,8 @@ evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *
      {
         if (props_mid->bidi_dir != EVAS_BIDI_DIRECTION_RTL)
           {
-             props_left->text_offset = 0;
-             int clust_idx_old = props_right->info->ot[0].source_cluster;
-             _rectify_cluster_indices(props_right, clust_idx_old);
+             int clust_idx_old = props_left->info->ot[0].source_cluster;
+             _rectify_cluster_indices(props_left, clust_idx_old);
           }
         props_left->changed = EINA_TRUE;
      }
