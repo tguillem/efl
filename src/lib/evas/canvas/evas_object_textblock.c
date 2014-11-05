@@ -5549,7 +5549,7 @@ _fix_merged_rtl(Ctxt *c, Eina_List *l)
    Eina_List *start = _split_first_item_get_ltr(l);
 
    prev_ti = eina_list_data_get(start);
-   prev_ti->text_props.start =  prev_ti->text_props.info->len - 1;
+   prev_ti->text_props.start =  prev_ti->text_props.info->len - prev_ti->text_props.len;
    prev_ti->text_props.text_offset = 0;
    start = eina_list_next(start);
 
@@ -5559,7 +5559,7 @@ _fix_merged_rtl(Ctxt *c, Eina_List *l)
 
         it->text_pos = prev_ti->parent.text_pos + prev_ti->text_props.text_len;
         _ITEM_TEXT(it)->text_props.text_offset = prev_ti->text_props.text_offset + prev_ti->text_props.text_len;
-        _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start + _ITEM_TEXT(it)->text_props.len;
+        _ITEM_TEXT(it)->text_props.start = prev_ti->text_props.start - _ITEM_TEXT(it)->text_props.len;
         prev_ti = _ITEM_TEXT(it);
      }
 }
