@@ -693,17 +693,21 @@ M.system_directory_scan = function()
 end
 
 M.generate = function(fname, fstream)
+    print("lualian eo file parse")
     if not eolian.eo_file_parse(fname) then
         error("Failed parsing file: " .. fname)
     end
+    print("lualian validate")
     if not eolian.database_validate() then
         error("Failed validating database.")
     end
+    print("lualian validated")
     local sfn = fname:match(".*[\\/](.+)$") or fname
     local klass = eolian.class_get_by_file(sfn)
     local tp = klass:type_get()
     local ct = eolian.class_type
     local cl
+    print("lualian gen class")
     if tp == ct.MIXIN or tp == ct.INTERFACE then
         cl = gen_mixin(klass)
     elseif tp == ct.REGULAR or tp == ct.ABSTRACT then
@@ -711,7 +715,9 @@ M.generate = function(fname, fstream)
     else
         error(klass:full_name_get() .. ": unknown type")
     end
+    print("lualian gen file")
     File(fname, klass, { cl }):generate(fstream or io.stdout)
+    print("lualian gend file")
 end
 
 return M
