@@ -366,14 +366,19 @@ evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *
    /* Fields associated with glyph/ot info were updated in the above call */
    if (props_right)
      {
+        int clust_idx_old;
         props_mid->info->refcount--; /* deattaching right_props */
         props_right->changed = EINA_TRUE;
+        props_right->text_offset = 0;
         if (props_mid->bidi_dir == EVAS_BIDI_DIRECTION_RTL)
           {
-             props_right->text_offset = 0;
-             int clust_idx_old = props_right->info->ot[props_right->info->len - 1].source_cluster;
-             _rectify_cluster_indices(props_right, clust_idx_old);
+             clust_idx_old = props_right->info->ot[props_right->info->len - 1].source_cluster;
           }
+        else
+          {
+             clust_idx_old = props_right->info->ot[0].source_cluster;
+          }
+        _rectify_cluster_indices(props_right, clust_idx_old);
      }
 
    if (props_left)
