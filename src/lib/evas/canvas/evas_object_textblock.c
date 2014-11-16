@@ -5641,6 +5641,36 @@ _handle_last_run(Ctxt *c, const Eina_Unicode *str, Font_Run *last_run, Evas_Obje
      }
    return EINA_FALSE;
 }
+
+static inline Eina_List *
+_font_runs_merge_invalid(Ctxt *c, Eina_List *font_runs)
+{
+   Eina_List *i;
+   Font_Run *run, *prev_run = NULL;
+   /* look for the first instance of a COMMON script. We need to check from it
+    * onwards. In the meantime, this seems like the only check we need
+    * to have. Might be more..
+    * TODO: check for more cases */
+   EINA_LIST_FOREACH(font_runs, i, run)
+     {
+        if (prev_run && (c->par->bidi_props->embedding_levels[prev_run->pos] == c->par->bidi_props->embedding_levels[run->pos]))
+          {
+             Eina_List *prev = eina_list_prev(i);
+             /* runs are in a different embedding leve. Fix this by mergine them */
+             prev_run->run_len += run->run_len;
+             free(run);
+             /* safe because we never remove the first run */
+             font_runs = eina_list_remove_list(font_runs, i);
+             /* also do another step on the same run */
+             i = eina_list_prev(prev);
+             if (!i) i = font_runs;
+          }
+
+        prev_run = run;
+     }
+   return NULL;
+}
+
 /**
  * @internal
  *  Updates the text item. Might create more than one item and also breka it down
@@ -5688,6 +5718,17 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
 #ifdef BIDI_SUPPORT
    _layout_update_bidi_props(c->o, c->par);
 #endif
+   if (ti->text_props.script == EVAS_SCRIPT_COMMON)
+     {
+        Eina_List *prev;
+        if ((prev = eina_list_prev(lti)))
+          {
+             len += ti->text_props.text_len;
+             c->par->logical_items = eina_list_remove_list(c->par->logical_items, lti);
+             lti = prev;
+             ti = eina_list_data_get(prev);
+          }
+     }
    font_runs = _layout_text_font_runs_get(c, ti->parent.format, str, ti->parent.text_pos, len + ti->text_props.text_len, c->o->repch);
 
    /* First, check if there is only one font run. Its script and font instance
@@ -5715,6 +5756,8 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
     * each case appropriately */
 
    update_only = EINA_FALSE;
+
+   //_font_runs_merge_invalid(c, font_runs);
 
    first = font_runs;
    last = eina_list_last(font_runs);
