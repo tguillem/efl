@@ -5869,9 +5869,28 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
                        c->par = tmp_par;
                     }
 
+                  if (n->dirty == EVAS_OBJECT_TEXTBLOCK_DIRTY_ADD)
+                    {
+                       /* Get information about added text (same script)
+                        * and update the affected items */
+
+                       /* continue to next node. Adding text shouldn't affect
+                        * most of the things */
+                      if ( _layout_pre_text_update(c, n))
+                        {
+                           _paragraph_clear(eo_obj, c->par);
+                           c->par = (Evas_Object_Textblock_Paragraph *)
+                              EINA_INLIST_GET(c->par)->next;
+                           continue;
+                        }
+                    }
+                  /* This is the regular non-optimized section */
+                  o->state = EVAS_OBJECT_TEXTBLOCK_STATE_NONE;
+                  n->dirty = EVAS_OBJECT_TEXTBLOCK_DIRTY_DEFAULT;
+
                   /* If it's dirty, remove and recreate, if it's clean,
                    * skip to the next. */
-                  if (n->dirty)
+                  if (n->dirty == EVAS_OBJECT_TEXTBLOCK_DIRTY_DEFAULT)
                     {
                        Evas_Object_Textblock_Paragraph *prev_par = c->par;
 
@@ -5880,7 +5899,7 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
                        c->paragraphs = (Evas_Object_Textblock_Paragraph *)
                           eina_inlist_remove(EINA_INLIST_GET(c->paragraphs),
                                 EINA_INLIST_GET(prev_par));
-                       _paragraph_free(eo_obj, prev_par);
+                    _paragraph_free(eo_obj, prev_par);
                     }
                   else
                     {
@@ -5897,7 +5916,7 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
                               {
                                  int pl = 0, pr = 0, pt = 0, pb = 0;
                                  _layout_do_format(eo_obj, c, &c->fmt, fnode,
-                                                   &pl, &pr, &pt, &pb, EINA_FALSE);
+                                       &pl, &pr, &pt, &pb, EINA_FALSE);
                                  fnode->pad.l = pl;
                                  fnode->pad.r = pr;
                                  fnode->pad.t = pt;
@@ -6089,6 +6108,7 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
      {
         if (w_ret) *w_ret = 0;
         if (h_ret) *h_ret = 0;
+        o->state = EVAS_OBJECT_TEXTBLOCK_STATE_NONE;
         return;
      }
 
@@ -6194,6 +6214,8 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
              par->y += adjustment;
           }
      }
+
+   o->state = EVAS_OBJECT_TEXTBLOCK_STATE_NONE;
 
    if ((o->style_pad.l != style_pad_l) || (o->style_pad.r != style_pad_r) ||
        (o->style_pad.t != style_pad_t) || (o->style_pad.b != style_pad_b))
@@ -6930,6 +6952,8 @@ _evas_textblock_text_markup_set(Eo *eo_obj EINA_UNUSED, Evas_Textblock_Data *o, 
      }
 
    _nodes_clear(eo_obj);
+
+   _STATE_SET(o, EVAS_OBJECT_TEXTBLOCK_STATE_SET);
 
    o->cursor->node = _evas_textblock_node_text_new();
    o->text_nodes = _NODE_TEXT(eina_inlist_append(
@@ -9090,6 +9114,7 @@ evas_textblock_cursor_text_append(Evas_Textblock_Cursor *cur, const char *_text)
    Evas_Object_Textblock_Node_Format *fnode = NULL;
    Eina_Unicode *text;
    int len = 0;
+   Eina_Bool was_empty = EINA_FALSE;
 
    if (!cur) return 0;
    text = eina_unicode_utf8_to_unicode(_text, &len);
@@ -9138,6 +9163,10 @@ evas_textblock_cursor_text_append(Evas_Textblock_Cursor *cur, const char *_text)
         cur->node = n;
      }
 
+   if (eina_ustrbuf_length_get(n->unicode) == 0)
+     {
+        was_empty = EINA_TRUE;
+     }
    eina_ustrbuf_insert_length(n->unicode, text, len, cur->pos);
    /* Advance the formats */
    if (fnode && (fnode->text_node == cur->node))
@@ -9147,7 +9176,25 @@ evas_textblock_cursor_text_append(Evas_Textblock_Cursor *cur, const char *_text)
    _evas_textblock_cursors_update_offset(cur, cur->node, cur->pos, len);
 
    _evas_textblock_changed(o, cur->obj);
-   n->dirty = EINA_TRUE;
+   _STATE_SET(o, EVAS_OBJECT_TEXTBLOCK_STATE_APPEND);
+   /* check if we are allowed to append (i.e. caller function was NOT
+    * markup_set) */
+   if ((o->state == EVAS_OBJECT_TEXTBLOCK_STATE_APPEND) &&
+         !was_empty)
+     {
+        n->dirty = EVAS_OBJECT_TEXTBLOCK_DIRTY_ADD;
+        _dirty_info_append(n, cur->pos, len);
+     }
+   else
+     {
+        /* n->dirty should be at DEFAULT if not ADD, so let's just set
+         * o->state back to a proper value for consistency, even though
+         * it won't matter anywhere in the process */
+        o->state = EVAS_OBJECT_TEXTBLOCK_STATE_SET;
+
+        /* markup_set overrides all dirty info up to this point */
+        if (n->dirty_info) _dirty_info_free(n);
+     }
    free(text);
 
    if (!o->cursor->node)
