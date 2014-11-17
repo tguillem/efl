@@ -266,6 +266,26 @@ _evas_common_font_ot_shape(hb_buffer_t *buffer, RGBA_Font_Int *fi, Evas_Text_Pro
      }
 }
 
+static inline hb_buffer_t *
+_get_hb_buffer(const Eina_Unicode *text, RGBA_Font_Int *fi, Evas_Script_Type script, Evas_BiDi_Direction bidi_dir, int text_len, Evas_Text_Props_Mode mode)
+{
+   hb_buffer_t* buffer;
+   buffer = hb_buffer_create();
+   hb_buffer_set_unicode_funcs(buffer, _evas_common_font_ot_unicode_funcs_get());
+   hb_buffer_set_language(buffer, hb_language_from_string(
+            evas_common_language_from_locale_get(), -1));
+   hb_buffer_set_script(buffer, _evas_script_to_harfbuzz[script]);
+   hb_buffer_set_direction(buffer,
+         (bidi_dir == EVAS_BIDI_DIRECTION_RTL) ?
+         HB_DIRECTION_RTL : HB_DIRECTION_LTR);
+   /* FIXME: add run-time conversions if needed, which is very unlikely */
+   hb_buffer_add_utf32(buffer, (const uint32_t *) text, text_len, 0, text_len);
+
+   _evas_common_font_ot_shape(buffer, fi, mode);
+
+   return buffer;
+}
+
 EAPI Eina_Bool
 evas_common_font_ot_populate_text_props(const Eina_Unicode *text,
       Evas_Text_Props *props, int len, Evas_Text_Props_Mode mode)
@@ -304,7 +324,9 @@ evas_common_font_ot_populate_text_props(const Eina_Unicode *text,
 
    _evas_common_font_ot_shape(buffer, fi, mode);
 
-   props->len = hb_buffer_get_length(buffer);
+   /* info_len stores glyph information array's length
+    * (this is for handling split items) */
+   props->info->len = props->len = hb_buffer_get_length(buffer);
    props->info->ot = calloc(props->len,
          sizeof(Evas_Font_OT_Info));
    props->info->glyph = calloc(props->len,
@@ -337,5 +359,264 @@ evas_common_font_ot_populate_text_props(const Eina_Unicode *text,
    return EINA_FALSE;
 }
 
+/* Like ot_populate, but instead just updates a specific range in the
+ * glyph information for a single item
+ */
+EAPI Eina_Bool
+evas_common_font_ot_update_text_props(const Eina_Unicode *text,
+      Evas_Text_Props *props, Evas_Text_Props_Mode mode)
+{
+   RGBA_Font_Int *fi;
+   hb_buffer_t *buffer;
+   hb_glyph_position_t *positions;
+   hb_glyph_info_t *infos;
+   int glen;
+   unsigned int i;
+   Evas_Font_Glyph_Info *gl_itr;
+   Evas_Font_OT_Info *ot_itr;
+   int pen_after = 0;
+   fi = props->font_instance;
+
+   int adv;
+   int prev_pen_after;
+   int clust_off;
+
+   int len1, offt, offs, len2;
+
+   Eina_Bool rtl = (props->bidi_dir == EVAS_BIDI_DIRECTION_RTL);
+
+   buffer = _get_hb_buffer(text, fi, props->script, props->bidi_dir, props->text_len, mode);
+
+   glen = hb_buffer_get_length(buffer); //get glyph length of text
+
+   /* text props has not been freed. allocate larger space and copy content to
+    * relevant range. */
+   offs = props->start + props->len; // offset in source info of remaining items after updated items (before update)
+   len2 = props->info->len - // length of info of all items (like split ones)
+      (props->start + // offset position of item in info
+       props->len); // length of item (before update)
+
+   props->info->len += (glen - props->len);
+   props->len = glen;
+   len1 = props->start; // up to item's position
+   offt = props->start + props->len; //offset in target info of remaining items after changed item
+   {
+      Evas_Font_OT_Info *tmp_ot = props->info->ot;
+      Evas_Font_Glyph_Info *tmp_glyph = props->info->glyph;
+
+      /* Allocate space for updated info.
+       * Size might be smaller (forming of ligatures),
+       * or bigger than original length */
+      props->info->ot = calloc(props->info->len,
+            sizeof(Evas_Font_OT_Info));
+      props->info->glyph = calloc(props->info->len,
+            sizeof(Evas_Font_Glyph_Info));
+
+      /* copy FIRST non-modified section */
+      if (len1 > 0)
+        {
+           memcpy(props->info->ot, tmp_ot,
+                 len1 * sizeof(Evas_Font_OT_Info));
+           memcpy(props->info->glyph, tmp_glyph,
+                 len1 * sizeof(Evas_Font_Glyph_Info));
+        }
+
+      /* copy LAST non-modified section */
+      if (len2 > 0)
+        {
+           memcpy(props->info->ot + offt, tmp_ot + offs,
+                 len2 * sizeof(Evas_Font_OT_Info));
+           memcpy(props->info->glyph + offt, tmp_glyph + offs, len2 *
+                 sizeof(Evas_Font_Glyph_Info));
+
+           prev_pen_after = tmp_glyph[offs - 1].pen_after;
+        }
+
+      /* free old information */
+      free(tmp_ot);
+      free(tmp_glyph);
+   }
+
+   gl_itr = props->info->glyph + props->start;
+   ot_itr = props->info->ot + props->start;
+   infos = hb_buffer_get_glyph_infos(buffer, NULL);
+   positions = hb_buffer_get_glyph_positions(buffer, NULL);
+
+   /* If there were items prior current item (i.e. len1 > 0), then need to calc
+    * from the last pen position */
+   clust_off = 0;
+   if (len1 > 0)
+     {
+        pen_after = gl_itr[-1].pen_after;
+        if (!rtl) clust_off = props->text_offset;
+     }
+   if (rtl && (len2 > 0))
+     {
+        clust_off = props->text_offset;
+     }
+
+   /* Update the item with new info */
+   for (i = 0; i < (size_t)(glen); i++)
+     {
+        ot_itr->source_cluster = infos->cluster + clust_off;
+
+        ot_itr->x_offset = positions->x_offset;
+        ot_itr->y_offset = positions->y_offset;
+        gl_itr->index = infos->codepoint;
+
+        adv = EVAS_FONT_ROUND_26_6_TO_INT(positions->x_advance);
+        pen_after += adv;
+        gl_itr->pen_after = pen_after;
+
+        infos++;
+        ot_itr++;
+        gl_itr++;
+        positions++;
+     }
+
+   /* update pen_after of rest of glyphs */
+   if (len2 > 0)
+     {
+        clust_off = props->text_offset + props->text_len;
+
+        int clust_diff = clust_off - ot_itr->source_cluster; // calculate the diff using the cluster of the first info of the rest of the items
+        int d = pen_after - prev_pen_after;
+
+        /* rectify pen_after values */
+        /* rectify cluster indices. The cluster of the next unaffected item
+         * should be the same as the its position in text. */
+        for (i = 0; i < (size_t)len2; i++)
+          {
+             /* rectify values */
+             if (!rtl) ot_itr->source_cluster += clust_diff; // corrects the cluster idx
+             gl_itr->pen_after += d;
+             gl_itr++;
+             ot_itr++;
+          }
+     }
+
+   /* adjust correct cluster indices in RTL case */
+   if (rtl && (len1 > 0))
+     {
+        ot_itr = props->info->ot + len1 - 1;
+        clust_off = props->text_offset + props->text_len;
+        int clust_diff = clust_off - ot_itr->source_cluster;
+        for (i = 0; i < (size_t)len1; i++)
+          {
+             /* rectify values */
+             ot_itr->source_cluster += clust_diff; // corrects the cluster idx
+             ot_itr--;
+          }
+
+     }
+   hb_buffer_destroy(buffer);
+   evas_common_font_int_use_trim();
+
+   return EINA_FALSE;
+}
+
+/* Splits the text props of an item into two individual text props.
+ * The provided text must be the text that is unchanged in the
+ * [0,text_offset - 1] and [text_offset + text_len, len] ranges.
+ * The first resultant part will end the info at the end of the props,
+ * and the second part will start where the props ends, and end at what's left.
+ */
+EAPI Eina_Bool
+evas_common_font_ot_hard_split_text_props(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right)
+{
+   Evas_Font_Glyph_Info *old_glyph;
+   Evas_Font_OT_Info *old_ot;
+   size_t left_len = 0, right_len = 0, mid_len = 0;
+   size_t info_len = props_mid->info->len;
+   Evas_Text_Props_Info *info = props_mid->info;
+
+   old_glyph = info->glyph;
+   old_ot = info->ot;
+
+   mid_len = props_mid->len;
+
+   if (props_left)
+     {
+        info = props_left->info;
+        /* handle left portion */
+        left_len = props_mid->start;
+        info->glyph = malloc(left_len * sizeof(Evas_Font_Glyph_Info));
+        info->ot = malloc(left_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(info->glyph, old_glyph, left_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(info->ot, old_ot, left_len * sizeof(Evas_Font_OT_Info));
+        /* props_left->start remains the same */
+        props_left->info->len = left_len;
+     }
+
+   if (props_right)
+     {
+        Evas_Text_Props_Info *right_info = props_right->info;
+        right_len = info_len - (props_mid->start + props_mid->len);
+        right_info->glyph = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
+        right_info->ot = malloc(right_len * sizeof(Evas_Font_OT_Info));
+        memcpy(right_info->glyph, old_glyph + props_mid->start + mid_len, right_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(right_info->ot, old_ot + props_mid->start + mid_len, right_len * sizeof(Evas_Font_OT_Info));
+        props_right->start = 0;
+        props_right->info->len = right_len;
+     }
+
+   if (props_left) // only free this is we now have new arrays in props_left
+     {
+        free(old_ot);
+        free(old_glyph);
+     }
+
+   /* AGAIN: no reshaping is done here. Returned result should be handled
+    * afterwards so everything is valid again */
+   return EINA_TRUE;
+}
+
+EAPI Eina_Bool
+evas_common_font_ot_hard_split_text_props_rtl(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right)
+{
+   Evas_Font_Glyph_Info *old_glyph;
+   Evas_Font_OT_Info *old_ot;
+   size_t left_len = 0, right_len = 0;
+   size_t info_len = props_mid->info->len;
+   Evas_Text_Props_Info *info = props_mid->info;
+
+   old_glyph = info->glyph;
+   old_ot = info->ot;
+
+   if (props_left)
+     {
+        Evas_Text_Props_Info *left_info = props_left->info;
+        left_len = info_len - props_mid->start - props_mid->len;
+        left_info->glyph = malloc(left_len * sizeof(Evas_Font_Glyph_Info));
+        left_info->ot = malloc(left_len * sizeof(Evas_Font_OT_Info));
+        memcpy(left_info->glyph, old_glyph + props_mid->start + props_mid->len, left_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(left_info->ot, old_ot + props_mid->start + props_mid->len, left_len * sizeof(Evas_Font_OT_Info));
+        props_left->start = 0;
+        props_left->info->len = left_len;
+     }
+
+   if (props_right)
+     {
+        Evas_Text_Props_Info *right_info = props_right->info;
+        /* handle right portion */
+        right_len = props_right->start + props_right->len;
+        right_info->glyph = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
+        right_info->ot = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(right_info->glyph, old_glyph, right_len * sizeof(Evas_Font_Glyph_Info));
+        memcpy(right_info->ot, old_ot, right_len * sizeof(Evas_Font_OT_Info));
+        /* props_right->start remains the same */
+        props_right->info->len = right_len;
+     }
+
+   if (props_left) // only free this is we now have new arrays in props_left
+     {
+        free(old_ot);
+        free(old_glyph);
+     }
+
+   /* AGAIN: no reshaping is done here. Returned result should be handled
+    * afterwards so everything is valid again */
+   return EINA_TRUE;
+}
 #endif
 

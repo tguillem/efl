@@ -35,5 +35,24 @@ evas_common_font_ot_cluster_size_get(const Evas_Text_Props *props, size_t char_i
 EAPI Eina_Bool
 evas_common_font_ot_populate_text_props(const Eina_Unicode *text,
       Evas_Text_Props *props, int len, Evas_Text_Props_Mode mode);
+
+/* Optimization functions: for text append handling */
+Eina_Bool
+evas_common_font_ot_update_text_props(const Eina_Unicode *text,
+      Evas_Text_Props *props, Evas_Text_Props_Mode mode);
+
+Eina_Bool
+evas_common_font_ot_hard_split_text_props(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right);
+
+Eina_Bool
+evas_common_font_ot_hard_split_text_props_rtl(Evas_Text_Props *props_left, Evas_Text_Props *props_mid, Evas_Text_Props *props_right);
+
+Eina_Bool
+evas_common_font_ot_append_text_props(const Eina_Unicode *text,
+      Evas_Text_Props *props, size_t off, size_t len, Evas_Text_Props_Mode mode);
+
+Eina_Bool
+evas_common_font_ot_prepend_text_props(const Eina_Unicode *text,
+      Evas_Text_Props *props, size_t len, Evas_Text_Props_Mode mode);
 #endif
 
