@@ -264,6 +264,138 @@ evas_common_text_props_index_find(const Evas_Text_Props *props, int _cutoff)
 #endif
 }
 
+#ifdef OT_SUPPORT
+/* Breaks the merge relation between two given text props
+ * (i.e. that share the same text info) */
+EAPI Eina_Bool
+evas_common_text_props_unmerge(Evas_Text_Props *props1,
+      Evas_Text_Props *props2)
+{
+   Evas_Text_Props_Info *info;
+   int len1, len2;
+   if (props1->info != props2->info)
+     {
+        ERR("Can't hard-split text props that don't share the same info");
+        return EINA_FALSE;
+     }
+   /* move info to a new space */
+   info = props1->info; //== props2->info
+   len2 = info->len - props2->start; //cropping out props1 info part
+   props2->info = malloc(sizeof(Evas_Text_Props_Info));
+   props2->info->glyph = malloc(len2 * sizeof(Evas_Font_Glyph_Info));
+   props2->info->ot = malloc(len2 * sizeof(Evas_Font_OT_Info));
+
+   memcpy(props2->info->glyph, info->glyph + props2->start, len2);
+   memcpy(props2->info->ot, info->ot + props2->start, len2);
+
+   props2->info->len = len2;
+   props2->info->refcount = info->refcount;
+
+   /* truncate props1->info */
+   len1 = props1->info->len = props1->info->len - len2;
+   props1->info->glyph = realloc(props1->info->glyph, len1);
+   props1->info->ot = realloc(props1->info->ot, len1);
+
+   props2->start = 0;
+   props2->text_offset = 0;
+
+   props1->changed = EINA_TRUE;
+   props2->changed = EINA_TRUE;
+
+   return EINA_TRUE;
+}
+
+/* Cuts the text props at a given text cut-point */
+EAPI Eina_Bool
+evas_common_text_props_cut(Evas_Text_Props *props1,
+      size_t off)
+{
+   Evas_Text_Props_Info *info;
+   int len1;
+   /* move info to a new space */
+   info = props1->info; //== props2->info
+
+   /* truncate props1->info */
+   props1->info->len -= (props1->text_offset + off); //cut everything up to offset
+   len1 = props1->info->len;
+   props1->info->glyph = realloc(props1->info->glyph, len1);
+   props1->info->ot = realloc(props1->info->ot, len1);
+
+   props1->changed = EINA_TRUE;
+
+   return EINA_TRUE;
+}
+
+static inline void
+_rectify_cluster_indices(Evas_Text_Props *props, int clust_idx_old)
+{
+   int clust_idx_new = props->text_offset;
+   int clust_diff = clust_idx_new - clust_idx_old;
+   size_t pos;
+
+   for (pos = 0; pos < props->info->len; pos++)
+     {
+        /* rectify cluster indices */
+        props->info->ot[pos].source_cluster += clust_diff;
+     }
+
+}
+
+/**
+ * @internal
+ * Description here
+ * Assumption: props_x is non-null iff it is in the merge relation with props_mid
+ *
+ * @param x description of param x
+ * @return description of return value
+ */
+EAPI Eina_Bool
+evas_common_text_props_hard_split(Evas_Text_Props *props_left, Evas_Text_Props *props_mid,
+      Evas_Text_Props *props_right)
+{
+   if (props_right)
+     {
+        props_right->info = malloc(sizeof(Evas_Text_Props_Info));
+        props_right->info->refcount = 1;
+     }
+
+   if (props_mid->bidi_dir == EVAS_BIDI_DIRECTION_RTL)
+      evas_common_font_ot_hard_split_text_props_rtl(props_left, props_mid, props_right);
+   else
+      evas_common_font_ot_hard_split_text_props(props_left, props_mid, props_right);
+   /* Fields associated with glyph/ot info were updated in the above call */
+   if (props_right)
+     {
+        int clust_idx_old;
+        props_mid->info->refcount--; /* deattaching right_props */
+        props_right->changed = EINA_TRUE;
+        props_right->text_offset = 0;
+        if (props_mid->bidi_dir == EVAS_BIDI_DIRECTION_RTL)
+          {
+             clust_idx_old = props_right->info->ot[props_right->info->len - 1].source_cluster;
+          }
+        else
+          {
+             clust_idx_old = props_right->info->ot[0].source_cluster;
+          }
+        _rectify_cluster_indices(props_right, clust_idx_old);
+     }
+
+   if (props_left)
+     {
+        /* BAD BAD BAD
+        if (props_mid->bidi_dir != EVAS_BIDI_DIRECTION_RTL)
+          {
+             int clust_idx_old = props_left->info->ot[0].source_cluster;
+             _rectify_cluster_indices(props_left, clust_idx_old);
+          }
+          */
+        props_left->changed = EINA_TRUE;
+     }
+
+   return EINA_TRUE;
+}
+#endif
 /* Won't work in the middle of ligatures, assumes cutoff < len.
  * Also won't work in the middle of indic words, should handle that in a
  * smart way. */
@@ -568,7 +700,147 @@ evas_common_text_props_content_create(void *_fi, const Eina_Unicode *text,
    return EINA_TRUE;
 }
 
+#ifdef OT_SUPPORT
+static inline void
+_adjust_ot_to_evas(RGBA_Font_Int *fi, const Eina_Unicode *text, Evas_Text_Props *text_props)
+{
+   size_t char_index;
+   Evas_Font_Glyph_Info *gl_itr;
+   Evas_Coord pen_x = 0, adjust_x = 0;
 
+   gl_itr = text_props->info->glyph + text_props->start;
+   for (char_index = 0; char_index < text_props->len ; char_index++)
+     {
+        FT_UInt idx;
+        RGBA_Font_Glyph *fg;
+        Eina_Bool is_replacement = EINA_FALSE;
+        /* If we got a malformed index, show the replacement char instead */
+        if (gl_itr->index == 0)
+          {
+             gl_itr->index = evas_common_get_char_index(fi, REPLACEMENT_CHAR);
+             is_replacement = EINA_TRUE;
+          }
+        idx = gl_itr->index;
+        LKL(fi->ft_mutex);
+        fg = evas_common_font_int_cache_glyph_get(fi, idx);
+        if (!fg)
+          {
+             LKU(fi->ft_mutex);
+             continue;
+          }
+        LKU(fi->ft_mutex);
+
+        gl_itr->x_bear = fg->x_bear;
+        gl_itr->y_bear = fg->y_bear;
+        gl_itr->width = fg->width;
+        /* text_props->info->glyph[char_index].advance =
+         * text_props->info->glyph[char_index].index =
+         * already done by the ot function */
+        if (EVAS_FONT_CHARACTER_IS_INVISIBLE(
+              text[text_props->info->ot[char_index].source_cluster]))
+          {
+             gl_itr->index = 0;
+             /* Reduce the current advance */
+             if (gl_itr > text_props->info->glyph)
+               {
+                  adjust_x -= gl_itr->pen_after - (gl_itr - 1)->pen_after;
+               }
+             else
+               {
+                  adjust_x -= gl_itr->pen_after;
+               }
+          }
+        else
+          {
+             if (is_replacement)
+               {
+                  /* Update the advance accordingly */
+                  adjust_x += (pen_x + (fg->glyph->advance.x >> 16)) -
+                     gl_itr->pen_after;
+               }
+             pen_x = gl_itr->pen_after;
+          }
+        gl_itr->pen_after += adjust_x;
+
+        fi = text_props->font_instance;
+        gl_itr++;
+     }
+}
+
+static inline void
+_content_update_ot(RGBA_Font_Int *fi, const Eina_Unicode *text,
+      Evas_Text_Props *text_props, Evas_Text_Props_Mode mode)
+{
+   evas_common_font_ot_update_text_props(text, text_props, mode);
+   _adjust_ot_to_evas(fi, text, text_props);
+}
+#endif
+static inline RGBA_Font_Int *
+_props_get_font_instance(Evas_Text_Props *text_props, void *_fi)
+{
+   RGBA_Font_Int *fi = (RGBA_Font_Int *) _fi;
+
+   if (text_props->font_instance != fi)
+     {
+        if (text_props->font_instance)
+          evas_common_font_int_unref(text_props->font_instance);
+        text_props->font_instance = fi;
+        fi->references++;
+     }
+
+   evas_common_font_int_reload(fi);
+   if (fi->src->current_size != fi->size)
+     {
+        evas_common_font_source_reload(fi->src);
+        FTLOCK();
+        FT_Activate_Size(fi->ft.size);
+        FTUNLOCK();
+        fi->src->current_size = fi->size;
+     }
+   return fi;
+}
+
+/* don't unref text props. don't recreate stuff. just update */
+EAPI Eina_Bool
+evas_common_text_props_content_update(void *_fi, const Eina_Unicode *text,
+      Evas_Text_Props *text_props, size_t text_pos, int len,
+      Evas_Text_Props_Mode mode)
+{
+   RGBA_Font_Int *fi = _props_get_font_instance(text_props, _fi);
+
+   /*just OT (harfbuzz) for now. */
+   text_props->text_len += len;
+   _content_update_ot(fi, text + text_pos, text_props, mode);
+
+   text_props->changed = EINA_TRUE;
+   return EINA_TRUE;
+}
+
+/* Expands the given text_props' span in text, in an append approach
+ *
+ * @param len added length
+ * @param props
+ */
+EAPI Eina_Bool
+evas_common_text_props_append(void *_fi, const Eina_Unicode *text, Evas_Text_Props *text_props, size_t text_pos, size_t len, Evas_Text_Props_Mode mode)
+{
+   /* change item's span in text */
+   evas_common_text_props_content_update(_fi, text, text_props, text_pos, len, mode);
+   return EINA_TRUE;
+}
+
+/* Expands the given text_props' span in text, in an append approach
+ *
+ * @param len added length
+ * @param props
+ */
+EAPI Eina_Bool
+evas_common_text_props_prepend(void *_fi, const Eina_Unicode *text, Evas_Text_Props *text_props, size_t text_pos, size_t len, Evas_Text_Props_Mode mode)
+{
+   /* change item's span in text */
+   evas_common_text_props_content_update(_fi, text, text_props, text_pos, len, mode);
+   return EINA_TRUE;
+}
 /**
  * @internal
  * Returns the numeric value of HEX chars for example for ch = 'A'
