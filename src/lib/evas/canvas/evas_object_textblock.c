@@ -276,6 +276,19 @@ struct _Evas_Object_Style_Tag
    Evas_Object_Style_Tag_Base tag;  /**< Base style object for holding style information. */
 };
 
+typedef enum
+{
+   EVAS_OBJECT_TEXTBLOCK_DIRTY_NONE = 0,
+   EVAS_OBJECT_TEXTBLOCK_DIRTY_DEFAULT = 0x1,
+   EVAS_OBJECT_TEXTBLOCK_DIRTY_ADD = 0x2
+} Evas_Object_Textblock_Dirty_State;
+
+typedef struct _Evas_Object_Textblock_Dirty_Info
+{
+   size_t pos; /**< Text position of the added text */
+   size_t len; /**< Length of the added text */
+}Evas_Object_Textblock_Dirty_Info;
+
 struct _Evas_Object_Textblock_Node_Text
 {
    EINA_INLIST;
@@ -283,7 +296,8 @@ struct _Evas_Object_Textblock_Node_Text
    char                               *utf8;  /**< Text in utf8 format. */
    Evas_Object_Textblock_Node_Format  *format_node; /**< Points to the last format node before the paragraph, or if there is none, to the first format node within the paragraph.*/
    Evas_Object_Textblock_Paragraph    *par;  /**< Points to the paragraph node of which this node is a part. */
-   Eina_Bool                           dirty : 1;  /**< EINA_TRUE if already handled/format changed, else EINA_FALSE. */
+   Eina_List                          *dirty_info; /**< List of dirty changes info in text */
+   Evas_Object_Textblock_Dirty_State   dirty : 3;
    Eina_Bool                           is_new : 1;  /**< EINA_TRUE if its a new paragraph, else EINA_FALSE. */
 };
 
@@ -472,6 +486,18 @@ struct _Evas_Textblock_Cursor
    Evas_Object_Textblock_Node_Text *node;
 };
 
+typedef enum {
+   EVAS_OBJECT_TEXTBLOCK_STATE_NONE,
+   EVAS_OBJECT_TEXTBLOCK_STATE_SET,
+   EVAS_OBJECT_TEXTBLOCK_STATE_APPEND
+} Evas_Object_Textblock_State;
+
+#define _STATE_SET(o, s) \
+   do { \
+      if (o->state == EVAS_OBJECT_TEXTBLOCK_STATE_NONE) o->state = s; \
+   }while(0)
+
+
 /* Size of the index array */
 #define TEXTBLOCK_PAR_INDEX_SIZE 10
 struct _Evas_Object_Textblock
@@ -501,6 +527,7 @@ struct _Evas_Object_Textblock
    void                               *engine_data;
    const char                         *repch;
    const char                         *bidi_delimiters;
+   Evas_Object_Textblock_State         state;
    struct {
       int                              w, h, oneline_h;
       Eina_Bool                        valid : 1;
