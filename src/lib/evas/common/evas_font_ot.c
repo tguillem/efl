@@ -347,6 +347,9 @@ evas_common_font_ot_populate_text_props(const Eina_Unicode *text,
         pen_x += adv;
         gl_itr->pen_after = EVAS_FONT_ROUND_26_6_TO_INT(pen_x);
 
+        /* make a copy for optimization */
+        gl_itr->pen_x = pen_x;
+
         ot_itr++;
         gl_itr++;
         infos++;
@@ -374,11 +377,9 @@ evas_common_font_ot_update_text_props(const Eina_Unicode *text,
    unsigned int i;
    Evas_Font_Glyph_Info *gl_itr;
    Evas_Font_OT_Info *ot_itr;
-   int pen_after = 0;
    fi = props->font_instance;
 
-   int adv;
-   int prev_pen_after;
+   Evas_Coord prev_pen_x = 0, pen_x = 0;
    int clust_off;
 
    int len1, offt, offs, len2;
@@ -429,7 +430,7 @@ evas_common_font_ot_update_text_props(const Eina_Unicode *text,
            memcpy(props->info->glyph + offt, tmp_glyph + offs, len2 *
                  sizeof(Evas_Font_Glyph_Info));
 
-           prev_pen_after = tmp_glyph[offs - 1].pen_after;
+           prev_pen_x = tmp_glyph[offs - 1].pen_x;
         }
 
       /* free old information */
@@ -447,7 +448,7 @@ evas_common_font_ot_update_text_props(const Eina_Unicode *text,
    clust_off = 0;
    if (len1 > 0)
      {
-        pen_after = gl_itr[-1].pen_after;
+        pen_x = gl_itr[-1].pen_x;
         if (!rtl) clust_off = props->text_offset;
      }
    if (rtl && (len2 > 0))
@@ -458,19 +459,21 @@ evas_common_font_ot_update_text_props(const Eina_Unicode *text,
    /* Update the item with new info */
    for (i = 0; i < (size_t)(glen); i++)
      {
+        Evas_Coord adv;
         ot_itr->source_cluster = infos->cluster + clust_off;
 
         ot_itr->x_offset = positions->x_offset;
         ot_itr->y_offset = positions->y_offset;
         gl_itr->index = infos->codepoint;
+        adv = positions->x_advance;
 
-        adv = EVAS_FONT_ROUND_26_6_TO_INT(positions->x_advance);
-        pen_after += adv;
-        gl_itr->pen_after = pen_after;
+        pen_x += adv;
+        gl_itr->pen_after = EVAS_FONT_ROUND_26_6_TO_INT(pen_x);
+        gl_itr->pen_x = pen_x;
 
-        infos++;
         ot_itr++;
         gl_itr++;
+        infos++;
         positions++;
      }
 
@@ -480,7 +483,7 @@ evas_common_font_ot_update_text_props(const Eina_Unicode *text,
         clust_off = props->text_offset + props->text_len;
 
         int clust_diff = clust_off - ot_itr->source_cluster; // calculate the diff using the cluster of the first info of the rest of the items
-        int d = pen_after - prev_pen_after;
+        Evas_Coord d = pen_x - prev_pen_x;
 
         /* rectify pen_after values */
         /* rectify cluster indices. The cluster of the next unaffected item
@@ -489,7 +492,8 @@ evas_common_font_ot_update_text_props(const Eina_Unicode *text,
           {
              /* rectify values */
              if (!rtl) ot_itr->source_cluster += clust_diff; // corrects the cluster idx
-             gl_itr->pen_after += d;
+             gl_itr->pen_x += d;
+             gl_itr->pen_after = EVAS_FONT_ROUND_26_6_TO_INT(gl_itr->pen_x);
              gl_itr++;
              ot_itr++;
           }
@@ -541,7 +545,7 @@ evas_common_font_ot_hard_split_text_props(Evas_Text_Props *props_left, Evas_Text
         /* handle left portion */
         left_len = props_mid->start;
         info->glyph = malloc(left_len * sizeof(Evas_Font_Glyph_Info));
-        info->ot = malloc(left_len * sizeof(Evas_Font_Glyph_Info));
+        info->ot = malloc(left_len * sizeof(Evas_Font_OT_Info));
         memcpy(info->glyph, old_glyph, left_len * sizeof(Evas_Font_Glyph_Info));
         memcpy(info->ot, old_ot, left_len * sizeof(Evas_Font_OT_Info));
         /* props_left->start remains the same */
@@ -601,7 +605,7 @@ evas_common_font_ot_hard_split_text_props_rtl(Evas_Text_Props *props_left, Evas_
         /* handle right portion */
         right_len = props_right->start + props_right->len;
         right_info->glyph = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
-        right_info->ot = malloc(right_len * sizeof(Evas_Font_Glyph_Info));
+        right_info->ot = malloc(right_len * sizeof(Evas_Font_OT_Info));
         memcpy(right_info->glyph, old_glyph, right_len * sizeof(Evas_Font_Glyph_Info));
         memcpy(right_info->ot, old_ot, right_len * sizeof(Evas_Font_OT_Info));
         /* props_right->start remains the same */

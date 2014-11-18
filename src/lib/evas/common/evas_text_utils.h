@@ -126,6 +126,7 @@ struct _Evas_Font_Glyph_Info
    // done with shorts to save space... if we need 32k or bigger glyphs and
    // relative layout info... worry then.
    Evas_Coord pen_after; // 4
+   Evas_Coord pen_x; //4
    short x_bear, y_bear, width; // 6
 #else   
    Evas_Coord x_bear; // 4

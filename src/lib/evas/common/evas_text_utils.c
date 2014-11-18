@@ -305,27 +305,6 @@ evas_common_text_props_unmerge(Evas_Text_Props *props1,
    return EINA_TRUE;
 }
 
-/* Cuts the text props at a given text cut-point */
-EAPI Eina_Bool
-evas_common_text_props_cut(Evas_Text_Props *props1,
-      size_t off)
-{
-   Evas_Text_Props_Info *info;
-   int len1;
-   /* move info to a new space */
-   info = props1->info; //== props2->info
-
-   /* truncate props1->info */
-   props1->info->len -= (props1->text_offset + off); //cut everything up to offset
-   len1 = props1->info->len;
-   props1->info->glyph = realloc(props1->info->glyph, len1);
-   props1->info->ot = realloc(props1->info->ot, len1);
-
-   props1->changed = EINA_TRUE;
-
-   return EINA_TRUE;
-}
-
 static inline void
 _rectify_cluster_indices(Evas_Text_Props *props, int clust_idx_old)
 {
@@ -338,7 +317,6 @@ _rectify_cluster_indices(Evas_Text_Props *props, int clust_idx_old)
         /* rectify cluster indices */
         props->info->ot[pos].source_cluster += clust_diff;
      }
-
 }
 
 /**
