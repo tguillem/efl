@@ -3094,6 +3094,116 @@ START_TEST(evas_textblock_delete)
 }
 END_TEST;
 
+static void
+_append_to_text(Evas_Object *tb, Evas_Textblock_Cursor *cur, char *str)
+{
+   Evas_Coord fw, fh, nw, nh;
+
+   evas_textblock_cursor_pos_set(cur, 0);
+   evas_textblock_cursor_text_prepend(cur, str);
+   evas_object_textblock_size_native_get(tb, &nw, &nh);
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+   ck_assert_int_le(fw, nw);
+   ck_assert_int_le(nh, fh);
+
+   evas_textblock_cursor_paragraph_char_last(cur);
+   evas_textblock_cursor_text_prepend(cur, str);
+   evas_object_textblock_size_native_get(tb, &nw, &nh);
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+   ck_assert_int_le(fw, nw);
+   ck_assert_int_le(nh, fh);
+
+   evas_textblock_cursor_pos_set(cur,
+         evas_textblock_cursor_pos_get(cur) / 2);
+   evas_textblock_cursor_text_prepend(cur, str);
+   evas_object_textblock_size_native_get(tb, &nw, &nh);
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+   ck_assert_int_le(fw, nw);
+   ck_assert_int_le(nh, fh);
+}
+
+/* Testing optimization for text appending */
+START_TEST(evas_textblock_append)
+{
+   START_TB_TEST();
+   Evas_Coord fw, fh, nw, nh;
+   int i;
+   int pos;
+   char *buf;
+
+   /* check that dirty info is cleaned after markup_set is used */
+   evas_object_textblock_text_markup_set(tb, "<wrap=word>the quick brown fox jumps over the lazy dog");
+   evas_textblock_cursor_text_prepend(cur, "a");
+   evas_object_textblock_text_markup_set(tb, "hello");
+
+   evas_object_textblock_text_markup_set(tb, "<wrap=word>the quick brown fox jumps over the lazy dog");
+   evas_object_textblock_size_formatted_get(tb, NULL, NULL);
+   evas_textblock_cursor_text_prepend(cur, "a");
+   evas_object_textblock_text_markup_set(tb, "hello");
+
+   evas_object_resize(tb, 0, 1000);
+   evas_object_textblock_text_markup_set(tb, "<wrap=word>the quick brown fox jumps over the lazy dog");
+   _append_to_text(tb, cur, "a");
+   _append_to_text(tb, cur, "א");
+
+   evas_object_textblock_text_markup_set(tb, "<wrap=word>השועל החום המהיר קופץ מעל הכלב בעצלן");
+   _append_to_text(tb, cur, "א");
+   _append_to_text(tb, cur, "x");
+
+   buf = "אאא אאאא א אא אאא אאאא אא אאא אאאא אאא אאא אאאא אאב"
+      " בבבבבב בב בבב בבב בבב בבב בב בבב בבבבב בב בב בבב ב בב בבבבב בבבב בבב בב"
+      " בבבבבב";
+
+   /* RTL with some latin text added */
+   evas_object_textblock_text_markup_set(tb, buf);
+   cur = evas_object_textblock_cursor_get(tb);
+   evas_textblock_cursor_format_prepend(cur, "+ wrap=word");
+
+   evas_object_textblock_size_native_get(tb, &nw, &nh);
+   evas_object_resize(tb, nw/2, nh*10);
+
+   /* Trigger layout */
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+   /* Add some Latin text somwhere */
+   pos = 0;
+   for (i=0; i < 130; i++)
+     {
+        char *buf2 = "כלמנabcdסעפצקרefgh";
+        evas_textblock_cursor_pos_set(cur, pos + 1);
+        evas_textblock_cursor_text_prepend(cur, buf2);
+        evas_object_textblock_size_native_get(tb, &nw, &nh);
+        evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+        ck_assert_int_le(fw, nw);
+        ck_assert_int_le(nh, fh);
+        pos = evas_textblock_cursor_pos_get(cur);
+     }
+
+   /* heavier test */
+   evas_object_textblock_text_markup_set(tb,
+         "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non orci vitae turpis pellentesque hendrerit. Sed a aliquet dolor, quis faucibus enim. Morbi convallis, libero eget hendrerit malesuada, lorem nulla pretium lacus, id consequat purus dui id orci. Proin porttitor ipsum vitae libero vehicula, sed iaculis turpis faucibus. Nulla tempus id eros eu fringilla. Donec ipsum neque, laoreet nec lectus sit amet, finibus rhoncus est. Pellentesque eu quam sit amet mauris hendrerit aliquam id vel diam. Suspendisse pretium, leo eu pharetra porttitor, nisl urna commodo lectus, eu aliquam ante diam vel leo. Duis malesuada suscipit dui, sed bibendum ipsum congue nec."
+         "Praesent dictum posuere molestie. Donec elementum venenatis orci vel elementum. Duis porta a ex eget rhoncus. Morbi nec faucibus est. In auctor semper pulvinar. Suspendisse placerat dui metus, at dictum sapien efficitur facilisis. Quisque sed leo eu justo mattis bibendum vitae sit amet augue. Sed ut semper augue. Fusce sit amet orci dolor."
+         "Vivamus commodo placerat aliquam. Nam in ipsum consequat, volutpat ligula vel, ullamcorper lorem. Donec sit amet neque at risus faucibus accumsan quis eu nisi. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Aliquam erat volutpat. Suspendisse tempor pharetra maximus. Duis sit amet sem in ipsum fringilla porta ac a ante. Donec fermentum tortor nibh, nec faucibus lorem consectetur in. Aenean sit amet diam et libero cursus sagittis eleifend at mi. Ut pretium sapien sed orci pulvinar varius. Sed interdum lectus dolor, ut vehicula erat dignissim vel. Vestibulum lorem diam, sollicitudin pulvinar tempus et, tempor sed enim."
+         "Aenean cursus augue non vulputate dapibus. Sed tempor, justo a interdum placerat, velit diam vulputate lorem, id consequat ligula purus in odio. In aliquam mattis tincidunt. Vivamus eget sodales orci. Phasellus accumsan posuere sagittis. Etiam rutrum dictum tellus a gravida. Donec a consectetur massa. Morbi sollicitudin ipsum quis sapien convallis, eu hendrerit massa sagittis. Fusce sed elementum augue. Fusce convallis metus sed sapien semper consectetur. In consectetur pharetra sem. Phasellus elit arcu, consequat et egestas vel, pulvinar ut nisl."
+         "Fusce bibendum, libero id sagittis pulvinar, erat leo blandit orci, malesuada sollicitudin ipsum nibh vel velit. Praesent non dui ut libero placerat suscipit. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum tortor metus, pharetra quis velit gravida, mollis lobortis ligula. Nunc hendrerit, magna eu posuere tempor, ligula sapien varius mi, in rutrum ante orci in ligula. Proin id volutpat risus. Quisque finibus quis lorem vitae euismod. Vestibulum nec fringilla ante.");
+
+   evas_textblock_cursor_pos_set(cur, 0);
+   evas_textblock_cursor_text_prepend(cur, "אבג");
+   evas_object_textblock_size_native_get(tb, &nw, &nh);
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+   ck_assert_int_le(fw, nw);
+   ck_assert_int_le(nh, fh);
+
+   evas_textblock_cursor_paragraph_char_last(cur);
+   evas_textblock_cursor_text_prepend(cur, "אבג");
+   evas_object_textblock_size_native_get(tb, &nw, &nh);
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+   ck_assert_int_le(fw, nw);
+   ck_assert_int_le(nh, fh);
+
+   END_TB_TEST();
+}
+END_TEST
+
 void evas_test_textblock(TCase *tc)
 {
    tcase_add_test(tc, evas_textblock_simple);
@@ -3115,5 +3225,6 @@ void evas_test_textblock(TCase *tc)
    tcase_add_test(tc, evas_textblock_wrapping);
    tcase_add_test(tc, evas_textblock_items);
    tcase_add_test(tc, evas_textblock_delete);
+   tcase_add_test(tc, evas_textblock_append);
 }
 
