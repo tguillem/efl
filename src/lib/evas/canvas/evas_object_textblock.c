@@ -486,18 +486,6 @@ struct _Evas_Textblock_Cursor
    Evas_Object_Textblock_Node_Text *node;
 };
 
-typedef enum {
-   EVAS_OBJECT_TEXTBLOCK_STATE_NONE,
-   EVAS_OBJECT_TEXTBLOCK_STATE_SET,
-   EVAS_OBJECT_TEXTBLOCK_STATE_APPEND
-} Evas_Object_Textblock_State;
-
-#define _STATE_SET(o, s) \
-   do { \
-      if (o->state == EVAS_OBJECT_TEXTBLOCK_STATE_NONE) o->state = s; \
-   }while(0)
-
-
 /* Size of the index array */
 #define TEXTBLOCK_PAR_INDEX_SIZE 10
 struct _Evas_Object_Textblock
@@ -527,7 +515,6 @@ struct _Evas_Object_Textblock
    void                               *engine_data;
    const char                         *repch;
    const char                         *bidi_delimiters;
-   Evas_Object_Textblock_State         state;
    struct {
       int                              w, h, oneline_h;
       Eina_Bool                        valid : 1;
@@ -538,6 +525,9 @@ struct _Evas_Object_Textblock
    Eina_Bool                           format_changed : 1;
    Eina_Bool                           have_ellipsis : 1;
    Eina_Bool                           legacy_newline : 1;
+#ifdef HAVE_HARFBUZZ
+   Eina_Bool                           ignore_fastpath : 1;
+#endif
 };
 
 /* private methods for textblock objects */
@@ -5190,6 +5180,7 @@ _layout_split_text_because_format(const Evas_Object_Textblock_Format *fmt,
    return EINA_FALSE;
 }
 
+#ifdef HAVE_HARFBUZZ
 static Evas_Object_Textblock_Item *
 _layout_find_item_node_match(Evas_Object_Textblock_Node_Text *n, size_t pos,
       Eina_List **ret_list)
@@ -5342,14 +5333,11 @@ static inline void
 _items_hard_split(Eina_List *left, Eina_List *right, Evas_Object_Textblock_Text_Item *left_ti, Evas_Object_Textblock_Text_Item *mid_ti,
 Evas_Object_Textblock_Text_Item *right_ti)
 {
-   Evas_Text_Props *props_left = NULL, *props_mid = NULL, *props_right = NULL;
+   Evas_Text_Props *props_left = NULL, *props_right = NULL;
+   Evas_Text_Props *props_mid = &mid_ti->text_props;
    if (left_ti)
      {
         props_left = &left_ti->text_props;
-     }
-   if (mid_ti) //FIXME: redundant. should be non-null
-     {
-        props_mid = &mid_ti->text_props;
      }
    if (right_ti)
      {
@@ -5428,10 +5416,10 @@ _split_first_item_get_ltr(Eina_List *i)
      {
         Evas_Object_Textblock_Item *it;
         it = eina_list_data_get(i);
-        if (!it->merge) return i;
+        if (!it->merge) break;
         i = eina_list_prev(i);
      }
-   return NULL;
+   return i;
 }
 
 static inline Eina_List *
@@ -5557,35 +5545,6 @@ _handle_last_run(const Eina_Unicode *str, Font_Run *last_run, Evas_Object_Textbl
    return EINA_FALSE;
 }
 
-static inline Eina_List *
-_font_runs_merge_invalid(Ctxt *c, Eina_List *font_runs)
-{
-   Eina_List *i;
-   Font_Run *run, *prev_run = NULL;
-   /* look for the first instance of a COMMON script. We need to check from it
-    * onwards. In the meantime, this seems like the only check we need
-    * to have. Might be more..
-    * TODO: check for more cases */
-   EINA_LIST_FOREACH(font_runs, i, run)
-     {
-        if (prev_run && (c->par->bidi_props->embedding_levels[prev_run->pos] == c->par->bidi_props->embedding_levels[run->pos]))
-          {
-             Eina_List *prev = eina_list_prev(i);
-             /* runs are in a different embedding leve. Fix this by mergine them */
-             prev_run->run_len += run->run_len;
-             free(run);
-             /* safe because we never remove the first run */
-             font_runs = eina_list_remove_list(font_runs, i);
-             /* also do another step on the same run */
-             i = eina_list_prev(prev);
-             if (!i) i = font_runs;
-          }
-
-        prev_run = run;
-     }
-   return NULL;
-}
-
 /**
  * @internal
  *  Updates the text item. Might create more than one item and also breka it down
@@ -5634,6 +5593,7 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
           {
              len += ti->text_props.text_len;
              c->par->logical_items = eina_list_remove_list(c->par->logical_items, lti);
+             _item_free(c->obj, ti->parent.ln, &ti->parent);
              lti = prev;
              ti = eina_list_data_get(prev);
           }
@@ -5658,8 +5618,6 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
     * each case appropriately */
 
    update_only = EINA_FALSE;
-
-   //_font_runs_merge_invalid(c, font_runs);
 
    first = font_runs;
    last = eina_list_last(font_runs);
@@ -5704,6 +5662,7 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
         Eina_List *rel = lti;
         Eina_List *i;
         Evas_Object_Textblock_Item *prev_it;
+        Evas_Object_Textblock_Text_Item *new_ti;
 
         prev_it = (left ? eina_list_data_get(left) : NULL);
         EINA_LIST_FOREACH(first, i, run)
@@ -5729,7 +5688,6 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
                     }
                }
 
-             Evas_Object_Textblock_Text_Item *new_ti;
              new_ti = _layout_text_item_new(c, run->fmt);
              new_ti->parent.text_node = n;
              new_ti->parent.text_pos = (prev_it ? (prev_it->text_pos + GET_ITEM_LEN(prev_it)) : 0);
@@ -5744,12 +5702,12 @@ _layout_pre_text_item_update(Ctxt *c, Evas_Object_Textblock_Text_Item *ti,
                   ENFN->font_text_props_info_create(ENDT,
                         run->fi, str + new_ti->parent.text_pos, &new_ti->text_props, c->par->bidi_props,
                         new_ti->parent.text_pos, run->run_len, EVAS_TEXT_PROPS_MODE_SHAPE);
-                  _text_item_update_sizes(c, new_ti);
-                  c->par->logical_items = eina_list_append_relative_list(
-                        c->par->logical_items, new_ti, rel);
-                  /* append items one after another */
-                  rel = eina_list_next(rel);
                }
+             _text_item_update_sizes(c, new_ti);
+             c->par->logical_items = eina_list_append_relative_list(
+                   c->par->logical_items, new_ti, rel);
+             /* append items one after another */
+             rel = eina_list_next(rel);
           }
      }
 
@@ -5808,23 +5766,14 @@ _layout_pre_text_update(Ctxt *c, Evas_Object_Textblock_Node_Text *n)
         /* must be text item because this is called only for handling cases of
          * dirty text items */
         it = _layout_find_item_node_match(n, info->pos, &lti);
-
-        if (it && (it->type != EVAS_TEXTBLOCK_ITEM_TEXT))
-          {
-             /* prev item shouldn't be null since n->unicode is not empty string */
-             it = _ITEM(EINA_INLIST_GET(it)->prev);
-          }
-        //TODO: Might be ok but make sure we always have text items.
-        //Otherwise, handle other cases
-        ti = _ITEM_TEXT(it);
-
+        ti = _ITEM_TEXT(it); /* always a text item */
         _layout_pre_text_item_update(c, ti, lti, n, info->len);
 
         free(info);
      }
    return EINA_TRUE;
 }
-
+#endif
 
 /** FIXME: Document */
 static void
@@ -5869,6 +5818,7 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
                        c->par = tmp_par;
                     }
 
+#ifdef HAVE_HARFBUZZ
                   if (n->dirty == EVAS_OBJECT_TEXTBLOCK_DIRTY_ADD)
                     {
                        /* Get information about added text (same script)
@@ -5885,9 +5835,7 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
                         }
                     }
                   /* This is the regular non-optimized section */
-                  o->state = EVAS_OBJECT_TEXTBLOCK_STATE_NONE;
-                  n->dirty = EVAS_OBJECT_TEXTBLOCK_DIRTY_DEFAULT;
-
+#endif
                   /* If it's dirty, remove and recreate, if it's clean,
                    * skip to the next. */
                   if (n->dirty == EVAS_OBJECT_TEXTBLOCK_DIRTY_DEFAULT)
@@ -6108,13 +6056,15 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
      {
         if (w_ret) *w_ret = 0;
         if (h_ret) *h_ret = 0;
-        o->state = EVAS_OBJECT_TEXTBLOCK_STATE_NONE;
         return;
      }
 
    _layout_pre(c, &style_pad_l, &style_pad_r, &style_pad_t, &style_pad_b);
+#ifdef HAVE_HARFBUZZ
+   /* re-enable the fast-path option after pre-layout */
+   o->ignore_fastpath = EINA_FALSE;
+#endif
    c->paragraphs = o->paragraphs;
-
    /* If there are no paragraphs, create the minimum needed,
     * if the last paragraph has no lines/text, create that as well */
    if (!c->paragraphs)
@@ -6214,8 +6164,6 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
              par->y += adjustment;
           }
      }
-
-   o->state = EVAS_OBJECT_TEXTBLOCK_STATE_NONE;
 
    if ((o->style_pad.l != style_pad_l) || (o->style_pad.r != style_pad_r) ||
        (o->style_pad.t != style_pad_t) || (o->style_pad.b != style_pad_b))
@@ -6952,8 +6900,6 @@ _evas_textblock_text_markup_set(Eo *eo_obj EINA_UNUSED, Evas_Textblock_Data *o, 
      }
 
    _nodes_clear(eo_obj);
-
-   _STATE_SET(o, EVAS_OBJECT_TEXTBLOCK_STATE_SET);
 
    o->cursor->node = _evas_textblock_node_text_new();
    o->text_nodes = _NODE_TEXT(eina_inlist_append(
@@ -8882,6 +8828,9 @@ static void
 _evas_textblock_node_text_free(Evas_Object_Textblock_Node_Text *n)
 {
    if (!n) return;
+#ifdef HAVE_HARFBUZZ
+   _dirty_info_free(n);
+#endif
    eina_ustrbuf_free(n->unicode);
    if (n->utf8)
      free(n->utf8);
@@ -9114,7 +9063,9 @@ evas_textblock_cursor_text_append(Evas_Textblock_Cursor *cur, const char *_text)
    Evas_Object_Textblock_Node_Format *fnode = NULL;
    Eina_Unicode *text;
    int len = 0;
+#ifdef HAVE_HARFBUZZ
    Eina_Bool was_empty = EINA_FALSE;
+#endif
 
    if (!cur) return 0;
    text = eina_unicode_utf8_to_unicode(_text, &len);
@@ -9163,10 +9114,12 @@ evas_textblock_cursor_text_append(Evas_Textblock_Cursor *cur, const char *_text)
         cur->node = n;
      }
 
+#ifdef HAVE_HARFBUZZ
    if (eina_ustrbuf_length_get(n->unicode) == 0)
      {
         was_empty = EINA_TRUE;
      }
+#endif
    eina_ustrbuf_insert_length(n->unicode, text, len, cur->pos);
    /* Advance the formats */
    if (fnode && (fnode->text_node == cur->node))
@@ -9176,24 +9129,26 @@ evas_textblock_cursor_text_append(Evas_Textblock_Cursor *cur, const char *_text)
    _evas_textblock_cursors_update_offset(cur, cur->node, cur->pos, len);
 
    _evas_textblock_changed(o, cur->obj);
-   _STATE_SET(o, EVAS_OBJECT_TEXTBLOCK_STATE_APPEND);
-   /* check if we are allowed to append (i.e. caller function was NOT
-    * markup_set) */
-   if ((o->state == EVAS_OBJECT_TEXTBLOCK_STATE_APPEND) &&
-         !was_empty)
+   if (!n->is_new)
      {
-        n->dirty = EVAS_OBJECT_TEXTBLOCK_DIRTY_ADD;
-        _dirty_info_append(n, cur->pos, len);
-     }
-   else
-     {
-        /* n->dirty should be at DEFAULT if not ADD, so let's just set
-         * o->state back to a proper value for consistency, even though
-         * it won't matter anywhere in the process */
-        o->state = EVAS_OBJECT_TEXTBLOCK_STATE_SET;
-
-        /* markup_set overrides all dirty info up to this point */
-        if (n->dirty_info) _dirty_info_free(n);
+#ifdef HAVE_HARFBUZZ
+        /* check if we are allowed to append (i.e. caller function was NOT
+         * markup_set) */
+        if (!was_empty && !o->ignore_fastpath)
+          {
+             n->dirty = EVAS_OBJECT_TEXTBLOCK_DIRTY_ADD;
+             _dirty_info_append(n, cur->pos, len);
+          }
+        else
+          {
+             /* n->dirty should be at DEFAULT if not ADD, so let's just set
+              * o->state back to a proper value for consistency, even though
+              * it won't matter anywhere in the process */
+             n->dirty = EVAS_OBJECT_TEXTBLOCK_DIRTY_DEFAULT;
+          }
+#else
+        n->dirty = EINA_TRUE;
+#endif
      }
    free(text);
 
@@ -9523,6 +9478,15 @@ evas_textblock_cursor_format_prepend(Evas_Textblock_Cursor *cur, const char *for
         /* Advance after the replacement char */
         evas_textblock_cursor_char_next(cur);
      }
+#ifdef HAVE_HARFBUZZ
+/* Unsupported in the optimization. For now, this reverts all dirty info, and
+ * just marks all dirty nodes as dirty */
+     {
+        Evas_Textblock_Data *o = eo_data_scope_get(cur->obj, MY_CLASS);
+        o->ignore_fastpath = EINA_TRUE;
+        _dirty_info_free(cur->node);
+     }
+#endif
 
    return is_visible;
 }
