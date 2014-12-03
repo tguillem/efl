@@ -800,6 +800,7 @@ _props_get_font_instance(Evas_Text_Props *text_props, void *_fi)
    return fi;
 }
 
+#ifdef OT_SUPPORT
 /* don't unref text props. don't recreate stuff. just update */
 EAPI Eina_Bool
 evas_common_text_props_content_update(void *_fi, const Eina_Unicode *text,
@@ -841,6 +842,8 @@ evas_common_text_props_prepend(void *_fi, const Eina_Unicode *text, Evas_Text_Pr
    evas_common_text_props_content_update(_fi, text, text_props, text_pos, len, mode);
    return EINA_TRUE;
 }
+#endif
+
 /**
  * @internal
  * Returns the numeric value of HEX chars for example for ch = 'A'
