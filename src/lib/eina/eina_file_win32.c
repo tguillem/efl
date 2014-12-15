@@ -144,7 +144,7 @@ _eina_file_win32_first_file(const char *dir, WIN32_FIND_DATA *fd)
 
    wdir = evil_char_to_wchar(dir);
    if (!wdir)
-     return INVALID_HANDLE_VALUE;
+     return NULL;
 
    h = FindFirstFile(wdir, fd);
    free(wdir);
@@ -153,14 +153,14 @@ _eina_file_win32_first_file(const char *dir, WIN32_FIND_DATA *fd)
 #endif
 
    if (!h)
-     return INVALID_HANDLE_VALUE;
+     return NULL;
 
    while ((fd->cFileName[0] == '.') &&
           ((fd->cFileName[1] == '\0') ||
            ((fd->cFileName[1] == '.') && (fd->cFileName[2] == '\0'))))
      {
         if (!FindNextFile(h, fd))
-          return INVALID_HANDLE_VALUE;
+          return NULL;
      }
 
    return h;
@@ -181,11 +181,7 @@ _eina_file_win32_ls_iterator_next(Eina_File_Iterator *it, void **data)
    Eina_Bool res = EINA_TRUE;
 
    if (it->handle == INVALID_HANDLE_VALUE)
-     {
-        if (GetLastError() == ERROR_NO_MORE_FILES)
-          it->is_last = EINA_TRUE;
-        return EINA_FALSE;
-     }
+     return EINA_FALSE;
 
    is_last = it->is_last;
 #ifdef UNICODE
@@ -267,11 +263,7 @@ _eina_file_win32_direct_ls_iterator_next(Eina_File_Direct_Iterator *it, void **d
    Eina_Bool res = EINA_TRUE;
 
    if (it->handle == INVALID_HANDLE_VALUE)
-     {
-        if (GetLastError() == ERROR_NO_MORE_FILES)
-          it->is_last = EINA_TRUE;
-        return EINA_FALSE;
-     }
+     return EINA_FALSE;
 
    attr = it->data.dwFileAttributes;
    is_last = it->is_last;
@@ -588,7 +580,7 @@ eina_file_ls(const char *dir)
 
    it->handle = _eina_file_win32_first_file(new_dir, &it->data);
    free(new_dir);
-   if ((it->handle == INVALID_HANDLE_VALUE) && (GetLastError() != ERROR_NO_MORE_FILES))
+   if (it->handle == INVALID_HANDLE_VALUE)
      goto free_it;
 
    memcpy(it->dir, dir, length + 1);
@@ -639,7 +631,7 @@ eina_file_direct_ls(const char *dir)
 
    it->handle = _eina_file_win32_first_file(new_dir, &it->data);
    free(new_dir);
-   if ((it->handle == INVALID_HANDLE_VALUE) && (GetLastError() != ERROR_NO_MORE_FILES))
+   if (it->handle == INVALID_HANDLE_VALUE)
      goto free_it;
 
    memcpy(it->dir, dir, length + 1);
@@ -736,16 +728,17 @@ eina_file_open(const char *path, Eina_Bool shared)
 
    if (handle == INVALID_HANDLE_VALUE)
      {
-        LPVOID lpMsgBuf;
+	LPVOID lpMsgBuf;
 
-        FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-                      FORMAT_MESSAGE_FROM_SYSTEM |
-                      FORMAT_MESSAGE_IGNORE_INSERTS,
-                      NULL,
-                      GetLastError(),
-                      MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                      (LPTSTR) &lpMsgBuf,
-                      0, NULL);
+        FormatMessage(
+          FORMAT_MESSAGE_ALLOCATE_BUFFER |
+          FORMAT_MESSAGE_FROM_SYSTEM |
+          FORMAT_MESSAGE_IGNORE_INSERTS,
+          NULL,
+          GetLastError(),
+          MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+          (LPTSTR) &lpMsgBuf,
+          0, NULL);
 
         switch (GetLastError())
           {
