@@ -900,17 +900,23 @@ eina_file_map_all(Eina_File *file, Eina_File_Populate rule EINA_UNUSED)
 
 EAPI void *
 eina_file_map_new(Eina_File *file, Eina_File_Populate rule,
-                  unsigned long int offset, unsigned long int length)
+                  unsigned long long int offset, unsigned long long int length)
 {
    Eina_File_Map *map;
-   unsigned long int key[2];
+   unsigned long long int key[2];
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(file, NULL);
 
    if (offset > file->length)
+   {
+     ERR("offset > file->length");
      return NULL;
+   }
    if (offset + length > file->length)
+   {
+     ERR("offset + length > file->length");
      return NULL;
+   }
 
    if (offset == 0 && length == file->length)
      return eina_file_map_all(file, rule);
@@ -926,11 +932,17 @@ eina_file_map_new(Eina_File *file, Eina_File_Populate rule,
    map = eina_hash_find(file->map, &key);
    if (!map)
      {
-        void  *data;
+        LPVOID data;
+        DWORD high;
+        DWORD low;
 
-        map = malloc(sizeof (Eina_File_Map));
+	high = (offset >> 32) & 0xFFFF0000;
+	low = offset & 0xFFFF0000;
+
+        map = calloc(1, sizeof (Eina_File_Map));
         if (!map)
           {
+             ERR("Could not allocate memory for map !");
              eina_lock_release(&file->lock);
              return NULL;
           }
@@ -941,14 +953,18 @@ eina_file_map_new(Eina_File *file, Eina_File_Populate rule,
         /* the length parameter is unsigned long, that is a DWORD */
         /* so the max size high parameter of CreateFileMapping is 0 */
         file->fm = CreateFileMapping(file->handle, NULL, PAGE_READONLY,
-                                     0, (DWORD)length, NULL);
+                                     0, 0, NULL);
         if (!file->fm)
           return NULL;
 
-        data = MapViewOfFile(file->fm, FILE_MAP_READ,
-                             offset & 0xffff0000,
-                             offset & 0x0000ffff,
-                             length);
+        ERR("offset = %llu, en offset_high %llu, offset_low %llu", offset, offset & 0xffff0000,offset & 0x0000ffff);
+//        data = MapViewOfFile(file->fm, FILE_MAP_READ,
+//                             offset & 0xffff0000,
+//                             offset & 0x0000ffff,
+//                             length);
+        data = MapViewOfFile(file->fm, FILE_MAP_READ, high, low, length);
+	DWORD dw = GetLastError();
+
         if (!data)
           map->map = MAP_FAILED;
         else
@@ -960,6 +976,7 @@ eina_file_map_new(Eina_File *file, Eina_File_Populate rule,
 
         if (map->map == MAP_FAILED)
           {
+             ERR("Map failed ! errno:%d", dw);
              free(map);
              eina_lock_release(&file->lock);
              return NULL;

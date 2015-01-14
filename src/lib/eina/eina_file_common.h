@@ -114,9 +114,14 @@ struct _Eina_File_Map
 {
    void *map;  /**< A pointer to the mapped region */
 
+#ifdef _WIN32
+   unsigned long long int offset;  /**< The offset in the file */
+   unsigned long long int length;  /**< The length of the region */
+#else
    unsigned long int offset;  /**< The offset in the file */
    unsigned long int length;  /**< The length of the region */
 
+#endif
    int refcount;  /**< Tracks references to this region */
 
    Eina_Bool hugetlb : 1;  /**< Indicates if we are using HugeTLB */

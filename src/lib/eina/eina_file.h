@@ -23,6 +23,7 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <stdint.h>
 
 #include "eina_types.h"
 #include "eina_array.h"
@@ -614,7 +615,7 @@ EAPI void *eina_file_map_all(Eina_File *file, Eina_File_Populate rule);
  * @since 1.1
  */
 EAPI void *eina_file_map_new(Eina_File *file, Eina_File_Populate rule,
-                             unsigned long int offset, unsigned long int length);
+                             uint64_t offset, uint64_t length);
 
 /**
  * @brief Unrefs and unmaps memory if possible.
