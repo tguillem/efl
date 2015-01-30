@@ -183,6 +183,12 @@ _eina_file_win32_ls_iterator_next(Eina_File_Iterator *it, void **data)
    if (it->handle == INVALID_HANDLE_VALUE)
      return EINA_FALSE;
 
+   if (!it->handle)
+     {
+        it->is_last = EINA_TRUE;
+        return EINA_FALSE;
+     }
+
    is_last = it->is_last;
 #ifdef UNICODE
    old_name = _wcsdup(it->data.cFileName);
@@ -264,6 +270,12 @@ _eina_file_win32_direct_ls_iterator_next(Eina_File_Direct_Iterator *it, void **d
 
    if (it->handle == INVALID_HANDLE_VALUE)
      return EINA_FALSE;
+
+   if (!it->handle)
+     {
+        it->is_last = EINA_TRUE;
+        return EINA_FALSE;
+     }
 
    attr = it->data.dwFileAttributes;
    is_last = it->is_last;
