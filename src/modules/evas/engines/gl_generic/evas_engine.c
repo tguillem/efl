@@ -1934,41 +1934,6 @@ eng_texture_free(void *data EINA_UNUSED, void *texture)
 }
 
 static void
-eng_texture_data_set(void *data, void *texture, Evas_3D_Color_Format color_format,
-                     Evas_3D_Pixel_Format pixel_format, int w, int h, const void *pixels)
-{
-   Evas_Engine_GL_Context *gl_context;
-   Render_Engine_GL_Generic *re = data;
-
-   re->window_use(re->software.ob);
-   gl_context = re->window_gl_context_get(re->software.ob);
-   evas_gl_common_context_flush(gl_context);
-   eng_context_3d_use(data);
-
-   e3d_texture_data_set((E3D_Texture *)texture, color_format, pixel_format, w, h, pixels);
-}
-
-static void
-eng_texture_file_set(void *data, void *texture, const char *file, const char *key)
-{
-   Evas_Engine_GL_Context *gl_context;
-   Render_Engine_GL_Generic *re = data;
-
-   re->window_use(re->software.ob);
-   gl_context = re->window_gl_context_get(re->software.ob);
-   evas_gl_common_context_flush(gl_context);
-   eng_context_3d_use(data);
-
-   e3d_texture_file_set((E3D_Texture *)texture, file, key);
-}
-
-static void
-eng_texture_color_format_get(void *data EINA_UNUSED, void *texture, Evas_3D_Color_Format *format)
-{
-   *format = e3d_texture_color_format_get((E3D_Texture *)texture);
-}
-
-static void
 eng_texture_size_get(void *data EINA_UNUSED, void *texture, int *w, int *h)
 {
    e3d_texture_size_get((E3D_Texture *)texture, w, h);
@@ -2003,10 +1968,17 @@ eng_texture_filter_get(void *data EINA_UNUSED, void *texture,
 }
 
 static void
-eng_texture_image_set(void *data EINA_UNUSED, void *texture, void *image)
+eng_texture_image_set(void *data, void *texture, void *image)
 {
-   Evas_GL_Image *im = (Evas_GL_Image *)image;
-   e3d_texture_import((E3D_Texture *)texture, im->tex->pt->texture);
+   Evas_Engine_GL_Context *gl_context;
+   Render_Engine_GL_Generic *re = data;
+
+   re->window_use(re->software.ob);
+   gl_context = re->window_gl_context_get(re->software.ob);
+   evas_gl_common_context_flush(gl_context);
+   eng_context_3d_use(data);
+
+   e3d_texture_set((E3D_Texture *)texture, (Evas_GL_Image *)image);
 }
 
 static Evas_Func func, pfunc;
@@ -2137,9 +2109,6 @@ module_open(Evas_Module *em)
 
    ORD(texture_new);
    ORD(texture_free);
-   ORD(texture_data_set);
-   ORD(texture_file_set);
-   ORD(texture_color_format_get);
    ORD(texture_size_get);
    ORD(texture_wrap_set);
    ORD(texture_wrap_get);

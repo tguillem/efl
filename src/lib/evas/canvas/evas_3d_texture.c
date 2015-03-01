@@ -4,6 +4,30 @@
 #define MY_CLASS EVAS_3D_TEXTURE_CLASS
 
 static inline void
+_put_image_to_surface(Evas_Public_Data *e, Evas_3D_Texture_Data *pd, int w, int h, void *image)
+{
+   void *ctx = NULL;
+   if (pd->surface)
+     {
+        e->engine.func->image_map_surface_free(e->engine.data.output,
+                                               pd->surface);
+        pd->surface = NULL;
+     }
+
+   pd->surface = e->engine.func->image_map_surface_new(e->engine.data.output, w, h, 1);
+   if (!pd->surface)
+     {
+        ERR("Can't create new surface");
+        return;
+     }
+   ctx = e->engine.func->context_new(e->engine.data.output);
+   e->engine.func->image_draw(e->engine.data.output, ctx,
+                              pd->surface, image,
+                              0, 0, w, h, 0, 0, w, h, 0, EINA_FALSE);
+   e->engine.func->context_free(e->engine.data.output, ctx);
+}
+
+static inline void
 _texture_proxy_set(Evas_3D_Texture *texture, Evas_Object *eo_src, Evas_Object_Protected_Data *src)
 {
    Evas_3D_Texture_Data *pd = eo_data_scope_get(texture, MY_CLASS);
@@ -18,36 +42,49 @@ _texture_proxy_set(Evas_3D_Texture *texture, Evas_Object *eo_src, Evas_Object_Pr
 }
 
 static inline void
-_texture_proxy_unset(Evas_3D_Texture_Data *texture)
+_texture_unset(Evas_3D_Texture *obj)
 {
-   Evas_Object_Protected_Data *src = eo_data_scope_get(texture->source, EVAS_OBJECT_CLASS);
+   Eo *evas = NULL;
+   eo_do(obj, evas = evas_common_evas_get());
+   Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
+   Evas_3D_Texture_Data *pd = eo_data_scope_get(obj, MY_CLASS);
 
-   EINA_COW_WRITE_BEGIN(evas_object_proxy_cow, src->proxy, Evas_Object_Proxy_Data, proxy_src);
+   if (pd->source)
      {
-        proxy_src->proxy_textures = eina_list_remove(proxy_src->proxy_textures, texture);
-
-        if (eina_list_count(proxy_src->proxy_textures) == 0 &&
-            eina_list_count(proxy_src->proxies) == 0 &&
-            proxy_src->surface != NULL)
+        Evas_Object_Protected_Data *src = eo_data_scope_get(pd->source, EVAS_OBJECT_CLASS);
+        EINA_COW_WRITE_BEGIN(evas_object_proxy_cow, src->proxy, Evas_Object_Proxy_Data, proxy_src);
           {
-             Evas_Public_Data *e = src->layer->evas;
-             e->engine.func->image_map_surface_free(e->engine.data.output,
-                                                    proxy_src->surface);
-             proxy_src->surface = NULL;
-          }
+             proxy_src->proxy_textures = eina_list_remove(proxy_src->proxy_textures, pd);
+             if (eina_list_count(proxy_src->proxy_textures) == 0 &&
+                 eina_list_count(proxy_src->proxies) == 0 &&
+                 proxy_src->surface != NULL)
+               {
+                  Evas_Public_Data *ee = src->layer->evas;
+                  ee->engine.func->image_map_surface_free(ee->engine.data.output,
+                                                          proxy_src->surface);
+                  proxy_src->surface = NULL;
+               }
 
-        if (proxy_src->src_invisible)
-          {
-             proxy_src->src_invisible = EINA_FALSE;
-             src->changed_src_visible = EINA_TRUE;
-             evas_object_change(texture->source, src);
-             evas_object_smart_member_cache_invalidate(texture->source,
-                                                       EINA_FALSE, EINA_FALSE, EINA_TRUE);
+             if (proxy_src->src_invisible)
+               {
+                  proxy_src->src_invisible = EINA_FALSE;
+                  src->changed_src_visible = EINA_TRUE;
+                  evas_object_change(pd->source, src);
+                  evas_object_smart_member_cache_invalidate(pd->source,
+                                                            EINA_FALSE, EINA_FALSE, EINA_TRUE);
+               }
           }
+       EINA_COW_WRITE_END(evas_object_proxy_cow, src->proxy, proxy_src);
+       pd->source = NULL;
      }
-   EINA_COW_WRITE_END(evas_object_proxy_cow, src->proxy, proxy_src);
-
-   texture->source = NULL;
+   if (pd->surface)
+     {
+        e->engine.func->image_map_surface_free(e->engine.data.output,
+                                               pd->surface);
+        pd->surface = NULL;
+     }
+   e->engine.func->texture_free(e->engine.data.output, pd->engine_data);
+   pd->engine_data = NULL;
 }
 
 static inline void
@@ -58,103 +95,101 @@ _texture_proxy_subrender(Evas_3D_Texture *obj)
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
    Evas_3D_Texture_Data *pd = eo_data_scope_get(obj, MY_CLASS);
-   Evas_Object_Protected_Data *source;
-   void *ctx;
-   int w, h;
-   Eina_Bool is_image;
 
-   if (!pd->source)
-     return;
-
-   // TODO: replace this function by evas_render_proxy_subrender (as appropriate)
-
-   source = eo_data_scope_get(pd->source, EVAS_OBJECT_CLASS);
-
-   is_image = eo_isa(pd->source, EVAS_IMAGE_CLASS);
-
-   EINA_COW_WRITE_BEGIN(evas_object_proxy_cow, source->proxy, Evas_Object_Proxy_Data, proxy_write)
+   if (pd->source)
      {
-        proxy_write->redraw = EINA_FALSE;
+        // TODO: replace this function by evas_render_proxy_subrender (as appropriate)
+        Evas_Object_Protected_Data *source;
+        void *ctx;
+        int w, h;
+        Eina_Bool is_image;
 
-        if (is_image)
+        source = eo_data_scope_get(pd->source, EVAS_OBJECT_CLASS);
+        is_image = eo_isa(pd->source, EVAS_IMAGE_CLASS);
+
+        EINA_COW_WRITE_BEGIN(evas_object_proxy_cow, source->proxy, Evas_Object_Proxy_Data, proxy_write)
           {
-             void *image = source->func->engine_data_get(pd->source);
-             e->engine.func->image_size_get(e->engine.data.output, image, &w, &h);
-          }
-        else
-          {
-             w = source->cur->geometry.w;
-             h = source->cur->geometry.h;
-          }
+             proxy_write->redraw = EINA_FALSE;
 
-        /* We need to redraw surface then */
-        if ((proxy_write->surface) &&
-            ((proxy_write->w != w) || (proxy_write->h != h)))
-          {
-             e->engine.func->image_map_surface_free(e->engine.data.output,
-                                                    proxy_write->surface);
-             proxy_write->surface = NULL;
-          }
-
-        /* FIXME: Hardcoded alpha 'on' */
-        /* FIXME (cont): Should see if the object has alpha */
-        if (!proxy_write->surface)
-          {
-             proxy_write->surface = e->engine.func->image_map_surface_new
-               (e->engine.data.output, w, h, 1);
-             if (!proxy_write->surface) goto end;
-             proxy_write->w = w;
-             proxy_write->h = h;
-          }
-
-        ctx = e->engine.func->context_new(e->engine.data.output);
-        e->engine.func->context_color_set(e->engine.data.output, ctx, 0, 0,
-                                          0, 0);
-        e->engine.func->context_render_op_set(e->engine.data.output, ctx,
-                                              EVAS_RENDER_COPY);
-        e->engine.func->rectangle_draw(e->engine.data.output, ctx,
-                                       proxy_write->surface, 0, 0, w, h,
-                                       EINA_FALSE);
-        e->engine.func->context_free(e->engine.data.output, ctx);
-
-        ctx = e->engine.func->context_new(e->engine.data.output);
-
-        if (is_image)
-          {
-             void *image = source->func->engine_data_get(pd->source);
-
-             if (image)
+             if (is_image)
                {
-                  int imagew, imageh;
-                  e->engine.func->image_size_get(e->engine.data.output, image,
-                                                 &imagew, &imageh);
-                  e->engine.func->image_draw(e->engine.data.output, ctx,
-                                             proxy_write->surface, image,
-                                             0, 0, imagew, imageh, 0, 0, w, h, 0, EINA_FALSE);
+                  void *image = source->func->engine_data_get(pd->source);
+                  e->engine.func->image_size_get(e->engine.data.output, image, &w, &h);
                }
-          }
-        else
-          {
-             Evas_Proxy_Render_Data proxy_render_data = {
-                  .eo_proxy = NULL,
-                  .proxy_obj = NULL,
-                  .eo_src = pd->source,
-                  .source_clip = EINA_FALSE
-             };
+             else
+               {
+                  w = source->cur->geometry.w;
+                  h = source->cur->geometry.h;
+               }
 
-             evas_render_mapped(e, pd->source, source, ctx, proxy_write->surface,
-                                -source->cur->geometry.x,
-                                -source->cur->geometry.y,
-                                1, 0, 0, e->output.w, e->output.h,
-                                &proxy_render_data, 1, EINA_FALSE, EINA_FALSE);
-          }
+              /* We need to redraw surface then */
+              if ((proxy_write->surface) &&
+                  ((proxy_write->w != w) || (proxy_write->h != h)))
+                {
+                   e->engine.func->image_map_surface_free(e->engine.data.output,
+                                                          proxy_write->surface);
+                   proxy_write->surface = NULL;
+                }
 
-        e->engine.func->context_free(e->engine.data.output, ctx);
-        proxy_write->surface = e->engine.func->image_dirty_region
-           (e->engine.data.output, proxy_write->surface, 0, 0, w, h);
+              /* FIXME: Hardcoded alpha 'on' */
+              /* FIXME (cont): Should see if the object has alpha */
+              if (!proxy_write->surface)
+                {
+                   proxy_write->surface = e->engine.func->image_map_surface_new
+                                          (e->engine.data.output, w, h, 1);
+                   if (!proxy_write->surface) goto end;
+                   proxy_write->w = w;
+                   proxy_write->h = h;
+                }
+
+              ctx = e->engine.func->context_new(e->engine.data.output);
+              e->engine.func->context_color_set(e->engine.data.output, ctx, 0, 0,
+                                                0, 0);
+              e->engine.func->context_render_op_set(e->engine.data.output, ctx,
+                                                    EVAS_RENDER_COPY);
+              e->engine.func->rectangle_draw(e->engine.data.output, ctx,
+                                             proxy_write->surface, 0, 0, w, h,
+                                             EINA_FALSE);
+              e->engine.func->context_free(e->engine.data.output, ctx);
+
+              ctx = e->engine.func->context_new(e->engine.data.output);
+
+              if (is_image)
+                {
+                   void *image = source->func->engine_data_get(pd->source);
+                   if (image)
+                     {
+                        int imagew, imageh;
+                        e->engine.func->image_size_get(e->engine.data.output, image,
+                                                       &imagew, &imageh);
+                        e->engine.func->image_draw(e->engine.data.output, ctx,
+                                                   proxy_write->surface, image,
+                                                   0, 0, imagew, imageh, 0, 0, w, h, 0, EINA_FALSE);
+                     }
+                }
+              else
+                {
+                   Evas_Proxy_Render_Data proxy_render_data = {
+                             .eo_proxy = NULL,
+                             .proxy_obj = NULL,
+                             .eo_src = pd->source,
+                             .source_clip = EINA_FALSE
+                   };
+
+                   evas_render_mapped(e, pd->source, source, ctx, proxy_write->surface,
+                                 -source->cur->geometry.x,
+                                 -source->cur->geometry.y,
+                                 1, 0, 0, e->output.w, e->output.h,
+                                 &proxy_render_data, 1, EINA_FALSE, EINA_FALSE);
+                }
+
+              e->engine.func->context_free(e->engine.data.output, ctx);
+              proxy_write->surface = e->engine.func->image_dirty_region
+                      (e->engine.data.output, proxy_write->surface, 0, 0, w, h);
+           }
+     end:
+        EINA_COW_WRITE_END(evas_object_proxy_cow, source->proxy, proxy_write);
      }
- end:
-   EINA_COW_WRITE_END(evas_object_proxy_cow, source->proxy, proxy_write);
 }
 
 static void
@@ -165,17 +200,10 @@ _texture_fini(Evas_3D_Texture *obj)
    Eina_Iterator *it = NULL;
    void *data = NULL;
    Evas_3D_Material_Data *material = NULL;
+   Evas_3D_Texture_Data *pd;
 
    eo_do(obj, evas = evas_common_evas_get());
-   Evas_3D_Texture_Data *pd = eo_data_scope_get(obj, MY_CLASS);
-
-   if (pd->engine_data)
-     {
-        Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
-        if (e->engine.func->texture_free)
-          e->engine.func->texture_free(e->engine.data.output, pd->engine_data);
-        pd->engine_data = NULL;
-     }
+   pd = eo_data_scope_get(obj, MY_CLASS);
 
    if (pd->materials)
      {
@@ -191,15 +219,11 @@ _texture_fini(Evas_3D_Texture *obj)
                }
           }
         eina_iterator_free(it);
-
         eina_hash_free(pd->materials);
         pd->materials = NULL;
      }
 
-   if (pd->source)
-     {
-        _texture_proxy_unset(pd);
-     }
+   _texture_unset(obj);
 }
 
 static Eina_Bool
@@ -222,48 +246,26 @@ _evas_3d_texture_evas_3d_object_change_notify(Eo *obj, Evas_3D_Texture_Data *pd,
 EOLIAN static void
 _evas_3d_texture_evas_3d_object_update_notify(Eo *obj, Evas_3D_Texture_Data *pd)
 {
+   Eo *evas = NULL;
+   eo_do(obj, evas = evas_common_evas_get());
+   Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
+   if (pd->engine_data == NULL)
+     {
+        ERR("Failed to create engine-side texture object.");
+        return;
+     }
+
    if (pd->source)
      {
-        Eo *evas = NULL;
-        eo_do(obj, evas = evas_common_evas_get());
-        Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
         Evas_Object_Protected_Data *src = eo_data_scope_get(pd->source, EVAS_OBJECT_CLASS);
-
-        if (pd->engine_data == NULL)
+        if (src->proxy->redraw)
           {
-             if (e->engine.func->texture_new)
-               {
-                  pd->engine_data =
-                     e->engine.func->texture_new(e->engine.data.output);
-               }
-
-             if (pd->engine_data == NULL)
-               {
-                  ERR("Failed to create engine-side texture object.");
-                  return;
-               }
+             _texture_proxy_subrender(obj);
           }
-
-        if (src->proxy->surface && !src->proxy->redraw)
-          {
-             if (e->engine.func->texture_image_set)
-               {
-                  e->engine.func->texture_image_set(e->engine.data.output,
-                                                    pd->engine_data,
-                                                    src->proxy->surface);
-               }
-             return;
-
-          }
-
-        pd->proxy_rendering = EINA_TRUE;
-        _texture_proxy_subrender(obj);
-
         if (e->engine.func->texture_image_set)
           e->engine.func->texture_image_set(e->engine.data.output,
                                             pd->engine_data,
                                             src->proxy->surface);
-        pd->proxy_rendering = EINA_FALSE;
      }
 }
 
@@ -308,7 +310,6 @@ evas_3d_texture_material_del(Evas_3D_Texture *texture, Evas_3D_Material *materia
      eina_hash_set(pd->materials, &material, (const void *)(uintptr_t)(count - 1));
 }
 
-
 EAPI Evas_3D_Texture *
 evas_3d_texture_add(Evas *e)
 {
@@ -335,19 +336,41 @@ _evas_3d_texture_eo_base_destructor(Eo *obj, Evas_3D_Texture_Data *pd  EINA_UNUS
 }
 
 EOLIAN static void
-_evas_3d_texture_data_set(Eo *obj EINA_UNUSED, Evas_3D_Texture_Data *pd, Evas_3D_Color_Format color_format,
-                             Evas_3D_Pixel_Format pixel_format, int w, int h, const void *data)
+_evas_3d_texture_data_set(Eo *obj, Evas_3D_Texture_Data *pd, Evas_Colorspace color_format,
+                          int w, int h, const void *data)
 {
    Eo *evas = NULL;
+   void *ctx = NULL;
+   void *image = NULL;
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
 
    if (!pd->engine_data && e->engine.func->texture_new)
      pd->engine_data = e->engine.func->texture_new(e->engine.data.output);
+   if (!data)
+     {
+        ERR("Failure, image data is empty");
+        return;
+     }
+   else
+   image = e->engine.func->image_new_from_data(e->engine.data.output, w, h, (DATA32 *)data, EINA_TRUE, color_format);
 
-   if (e->engine.func->texture_data_set)
-     e->engine.func->texture_data_set(e->engine.data.output, pd->engine_data,
-                                      color_format, pixel_format, w, h, data);
+   if (!image)
+     {
+        ERR("Can't load image from data");
+        return;
+     }
+
+   _put_image_to_surface(e, pd, w, h, image);
+
+   if (e->engine.func->texture_image_set)
+     e->engine.func->texture_image_set(e->engine.data.output,
+                                       pd->engine_data,
+                                       pd->surface);
+   if (image)
+     {
+        e->engine.func->image_free(e->engine.data.output, image);
+     }
 
    eo_do(obj, evas_3d_object_change(EVAS_3D_STATE_TEXTURE_DATA, NULL));
 }
@@ -355,17 +378,41 @@ _evas_3d_texture_data_set(Eo *obj EINA_UNUSED, Evas_3D_Texture_Data *pd, Evas_3D
 EOLIAN static void
 _evas_3d_texture_file_set(Eo *obj, Evas_3D_Texture_Data *pd, const char *file, const char *key)
 {
+
+   Evas_Image_Load_Opts lo;
+   int load_error;
    Eo *evas = NULL;
+   void *ctx;
+   void *image;
+   int imagew, imageh;
+
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
 
    if (!pd->engine_data && e->engine.func->texture_new)
      pd->engine_data = e->engine.func->texture_new(e->engine.data.output);
 
-   if (e->engine.func->texture_file_set)
-     e->engine.func->texture_file_set(e->engine.data.output, pd->engine_data,
-                                      file, key);
+   memset(&lo, 0x0, sizeof(Evas_Image_Load_Opts));
+   image = e->engine.func->image_load(e->engine.data.output,
+                                      file, key, &load_error, &lo);
+   if (!image)
+     {
+        ERR("Can't load image from file");
+        return;
+     }
+   e->engine.func->image_size_get(e->engine.data.output, image,
+                                  &imagew, &imageh);
 
+   _put_image_to_surface(e, pd, imagew, imageh, image);
+
+   if (e->engine.func->texture_image_set)
+     e->engine.func->texture_image_set(e->engine.data.output,
+                                       pd->engine_data,
+                                       pd->surface);
+   if (image)
+     {
+        e->engine.func->image_free(e->engine.data.output, image);
+     }
    eo_do(obj, evas_3d_object_change(EVAS_3D_STATE_TEXTURE_DATA, NULL));
 }
 
@@ -374,6 +421,7 @@ _evas_3d_texture_source_set(Eo *obj , Evas_3D_Texture_Data *pd, Evas_Object *sou
 {
    Eo *evas = NULL;
    eo_do(obj, evas = evas_common_evas_get());
+   Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
    Evas_Object_Protected_Data *src;
 
    if (source == pd->source)
@@ -403,6 +451,8 @@ _evas_3d_texture_source_set(Eo *obj , Evas_3D_Texture_Data *pd, Evas_Object *sou
         ERR("No evas surface associated with the source object.");
         return;
      }
+   if (!pd->engine_data && e->engine.func->texture_new)
+     pd->engine_data = e->engine.func->texture_new(e->engine.data.output);
 
    _texture_proxy_set(obj, source, src);
    eo_do(obj, evas_3d_object_change(EVAS_3D_STATE_TEXTURE_DATA, NULL));
@@ -442,19 +492,17 @@ _evas_3d_texture_source_visible_get(Eo *obj EINA_UNUSED, Evas_3D_Texture_Data *p
    return !src_obj->proxy->src_invisible;
 }
 
-EOLIAN static Evas_3D_Color_Format
+EOLIAN static Evas_Colorspace
 _evas_3d_texture_color_format_get(Eo *obj EINA_UNUSED, Evas_3D_Texture_Data *pd)
 {
-   // FIXME: we need an unknown color format and unify that with Evas color space to
-   Evas_3D_Color_Format format = -1;
+   Evas_Colorspace format = -1;
    Eo *evas = NULL;
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
 
-   if (e->engine.func->texture_color_format_get)
+   if (pd->surface && e->engine.func->image_colorspace_get)
      {
-        e->engine.func->texture_color_format_get(e->engine.data.output,
-                                                 pd->engine_data, &format);
+        format = e->engine.func->image_colorspace_get(e->engine.data.output, pd->surface);
      }
 
    return format;

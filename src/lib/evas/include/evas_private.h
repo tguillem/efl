@@ -358,8 +358,9 @@ struct _Evas_3D_Texture
 
    /* Proxy data. */
    Evas_Object      *source;
-   Eina_Bool         proxy_rendering;
-   void             *proxy_surface;
+
+   /* Evas_GL_Image */
+   void             *surface;
 
    /* Engine-side object. */
    void             *engine_data;
@@ -1345,9 +1346,6 @@ struct _Evas_Func
 
    void *(*texture_new)                  (void *data);
    void  (*texture_free)                 (void *data, void *texture);
-   void  (*texture_data_set)             (void *data, void *texture, Evas_3D_Color_Format format, Evas_3D_Pixel_Format pixel_format, int w, int h, const void *pixels);
-   void  (*texture_file_set)             (void *data, void *texture, const char *file, const char *key);
-   void  (*texture_color_format_get)     (void *data, void *texture, Evas_3D_Color_Format *format);
    void  (*texture_size_get)             (void *data, void *texture, int *w, int *h);
    void  (*texture_wrap_set)             (void *data, void *texture, Evas_3D_Wrap_Mode s, Evas_3D_Wrap_Mode t);
    void  (*texture_wrap_get)             (void *data, void *texture, Evas_3D_Wrap_Mode *s, Evas_3D_Wrap_Mode *t);

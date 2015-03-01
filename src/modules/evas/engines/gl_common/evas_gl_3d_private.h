@@ -106,19 +106,18 @@ struct _E3D_Draw_Data
 
 struct _E3D_Texture
 {
-   int         w, h;
+   int               w, h;
+   Evas_GL_Image     *surface;
 
-   Eina_Bool   is_imported;
-   GLuint      tex;
-   GLenum      format;
+   GLuint            tex;
 
-   Eina_Bool   wrap_dirty;
-   GLenum      wrap_s;
-   GLenum      wrap_t;
+   Eina_Bool         wrap_dirty;
+   GLenum            wrap_s;
+   GLenum            wrap_t;
 
-   Eina_Bool   filter_dirty;
-   GLenum      filter_min;
-   GLenum      filter_mag;
+   Eina_Bool         filter_dirty;
+   GLenum            filter_min;
+   GLenum            filter_mag;
 };
 
 struct _E3D_Drawable

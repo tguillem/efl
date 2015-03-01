@@ -10,10 +10,8 @@ typedef struct _E3D_Renderer  E3D_Renderer;
 E3D_Texture         *e3d_texture_new(void);
 void                 e3d_texture_free(E3D_Texture *texture);
 
-void                 e3d_texture_data_set(E3D_Texture *texture, Evas_3D_Color_Format format, Evas_3D_Pixel_Format pixel_format, int w, int h, const void *data);
-void                 e3d_texture_file_set(E3D_Texture *texture, const char *file, const char *key);
-Evas_3D_Color_Format e3d_texture_color_format_get(E3D_Texture *texture);
 void                 e3d_texture_size_get(const E3D_Texture *texture, int *w, int *h);
+void                 e3d_texture_set(E3D_Texture *texture, Evas_GL_Image *im);
 
 void                 e3d_texture_import(E3D_Texture *texture, GLuint tex);
 Eina_Bool            e3d_texture_is_imported_get(const E3D_Texture *texture);
