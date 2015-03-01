@@ -285,7 +285,7 @@ e3d_renderer_draw(E3D_Renderer *renderer, E3D_Draw_Data *data)
    _renderer_program_use(renderer, program);
    e3d_program_uniform_upload(program, data);
    if (data->mode != EVAS_3D_SHADE_MODE_SHADOW_MAP_RENDER)
-   _renderer_texture_bind(renderer, data);
+     _renderer_texture_bind(renderer, data);
 
    /* Set up vertex attrib pointers. */
    index = 0;

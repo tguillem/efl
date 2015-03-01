@@ -4,30 +4,6 @@
 #define MY_CLASS EVAS_3D_TEXTURE_CLASS
 
 static inline void
-_put_image_to_surface(Evas_Public_Data *e, Evas_3D_Texture_Data *pd, int w, int h, void *image)
-{
-   void *ctx = NULL;
-   if (pd->surface)
-     {
-        e->engine.func->image_map_surface_free(e->engine.data.output,
-                                               pd->surface);
-        pd->surface = NULL;
-     }
-
-   pd->surface = e->engine.func->image_map_surface_new(e->engine.data.output, w, h, 1);
-   if (!pd->surface)
-     {
-        ERR("Can't create new surface");
-        return;
-     }
-   ctx = e->engine.func->context_new(e->engine.data.output);
-   e->engine.func->image_draw(e->engine.data.output, ctx,
-                              pd->surface, image,
-                              0, 0, w, h, 0, 0, w, h, 0, EINA_FALSE);
-   e->engine.func->context_free(e->engine.data.output, ctx);
-}
-
-static inline void
 _texture_proxy_set(Evas_3D_Texture *texture, Evas_Object *eo_src, Evas_Object_Protected_Data *src)
 {
    Evas_3D_Texture_Data *pd = eo_data_scope_get(texture, MY_CLASS);
@@ -76,12 +52,6 @@ _texture_unset(Evas_3D_Texture *obj)
           }
        EINA_COW_WRITE_END(evas_object_proxy_cow, src->proxy, proxy_src);
        pd->source = NULL;
-     }
-   if (pd->surface)
-     {
-        e->engine.func->image_map_surface_free(e->engine.data.output,
-                                               pd->surface);
-        pd->surface = NULL;
      }
    e->engine.func->texture_free(e->engine.data.output, pd->engine_data);
    pd->engine_data = NULL;
@@ -195,16 +165,13 @@ _texture_proxy_subrender(Evas_3D_Texture *obj)
 static void
 _texture_fini(Evas_3D_Texture *obj)
 {
-   Eo *evas = NULL;
    int i = 0;
    Eina_Iterator *it = NULL;
    void *data = NULL;
    Evas_3D_Material_Data *material = NULL;
    Evas_3D_Texture_Data *pd;
 
-   eo_do(obj, evas = evas_common_evas_get());
    pd = eo_data_scope_get(obj, MY_CLASS);
-
    if (pd->materials)
      {
         it = eina_hash_iterator_key_new(pd->materials);
@@ -336,11 +303,11 @@ _evas_3d_texture_eo_base_destructor(Eo *obj, Evas_3D_Texture_Data *pd  EINA_UNUS
 }
 
 EOLIAN static void
-_evas_3d_texture_data_set(Eo *obj, Evas_3D_Texture_Data *pd, Evas_Colorspace color_format,
+_evas_3d_texture_data_set(Eo *obj, Evas_3D_Texture_Data *pd,
+                          Evas_Colorspace color_format,
                           int w, int h, const void *data)
 {
    Eo *evas = NULL;
-   void *ctx = NULL;
    void *image = NULL;
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
@@ -352,26 +319,19 @@ _evas_3d_texture_data_set(Eo *obj, Evas_3D_Texture_Data *pd, Evas_Colorspace col
         ERR("Failure, image data is empty");
         return;
      }
-   else
-   image = e->engine.func->image_new_from_data(e->engine.data.output, w, h, (DATA32 *)data, EINA_TRUE, color_format);
 
+   image = e->engine.func->image_new_from_data(e->engine.data.output, w, h, (DATA32 *)data, EINA_TRUE, color_format);
    if (!image)
      {
         ERR("Can't load image from data");
         return;
      }
 
-   _put_image_to_surface(e, pd, w, h, image);
-
    if (e->engine.func->texture_image_set)
      e->engine.func->texture_image_set(e->engine.data.output,
                                        pd->engine_data,
-                                       pd->surface);
-   if (image)
-     {
-        e->engine.func->image_free(e->engine.data.output, image);
-     }
-
+                                       image);
+   e->engine.func->image_free(e->engine.data.output, image);
    eo_do(obj, evas_3d_object_change(EVAS_3D_STATE_TEXTURE_DATA, NULL));
 }
 
@@ -382,9 +342,7 @@ _evas_3d_texture_file_set(Eo *obj, Evas_3D_Texture_Data *pd, const char *file, c
    Evas_Image_Load_Opts lo;
    int load_error;
    Eo *evas = NULL;
-   void *ctx;
    void *image;
-   int imagew, imageh;
 
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
@@ -400,19 +358,13 @@ _evas_3d_texture_file_set(Eo *obj, Evas_3D_Texture_Data *pd, const char *file, c
         ERR("Can't load image from file");
         return;
      }
-   e->engine.func->image_size_get(e->engine.data.output, image,
-                                  &imagew, &imageh);
-
-   _put_image_to_surface(e, pd, imagew, imageh, image);
 
    if (e->engine.func->texture_image_set)
      e->engine.func->texture_image_set(e->engine.data.output,
                                        pd->engine_data,
-                                       pd->surface);
-   if (image)
-     {
-        e->engine.func->image_free(e->engine.data.output, image);
-     }
+                                       image);
+
+   e->engine.func->image_free(e->engine.data.output, image);
    eo_do(obj, evas_3d_object_change(EVAS_3D_STATE_TEXTURE_DATA, NULL));
 }
 
@@ -500,9 +452,13 @@ _evas_3d_texture_color_format_get(Eo *obj EINA_UNUSED, Evas_3D_Texture_Data *pd)
    eo_do(obj, evas = evas_common_evas_get());
    Evas_Public_Data *e = eo_data_scope_get(evas, EVAS_CANVAS_CLASS);
 
-   if (pd->surface && e->engine.func->image_colorspace_get)
+   if (e->engine.func->image_colorspace_get &&
+       e->engine.func->texture_image_get)
      {
-        format = e->engine.func->image_colorspace_get(e->engine.data.output, pd->surface);
+        void *image;
+
+        image = e->engine.func->texture_image_get(e->engine.data.output, pd->engine_data);
+        format = e->engine.func->image_colorspace_get(e->engine.data.output, image);
      }
 
    return format;

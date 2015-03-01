@@ -1975,10 +1975,14 @@ eng_texture_image_set(void *data, void *texture, void *image)
 
    re->window_use(re->software.ob);
    gl_context = re->window_gl_context_get(re->software.ob);
-   evas_gl_common_context_flush(gl_context);
-   eng_context_3d_use(data);
 
-   e3d_texture_set((E3D_Texture *)texture, (Evas_GL_Image *)image);
+   e3d_texture_set(gl_context, (E3D_Texture *)texture, (Evas_GL_Image *)image);
+}
+
+static void *
+eng_texture_image_get(void *data EINA_UNUSED, void *texture)
+{
+   return e3d_texture_get((E3D_Texture *)texture);
 }
 
 static Evas_Func func, pfunc;
@@ -2115,6 +2119,7 @@ module_open(Evas_Module *em)
    ORD(texture_filter_set);
    ORD(texture_filter_get);
    ORD(texture_image_set);
+   ORD(texture_image_get);
 
    /* now advertise out own api */
    em->functions = (void *)(&func);

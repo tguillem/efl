@@ -11,7 +11,8 @@ E3D_Texture         *e3d_texture_new(void);
 void                 e3d_texture_free(E3D_Texture *texture);
 
 void                 e3d_texture_size_get(const E3D_Texture *texture, int *w, int *h);
-void                 e3d_texture_set(E3D_Texture *texture, Evas_GL_Image *im);
+void                 e3d_texture_set(Evas_Engine_GL_Context *gc, E3D_Texture *texture, Evas_GL_Image *im);
+Evas_GL_Image       *e3d_texture_get(E3D_Texture *texture);
 
 void                 e3d_texture_import(E3D_Texture *texture, GLuint tex);
 Eina_Bool            e3d_texture_is_imported_get(const E3D_Texture *texture);

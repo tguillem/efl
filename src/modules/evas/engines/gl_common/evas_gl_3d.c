@@ -67,6 +67,11 @@ e3d_texture_new(void)
 void
 e3d_texture_free(E3D_Texture *texture)
 {
+   if (texture)
+     {
+        if (texture->surface)
+          evas_gl_common_image_unref(texture->surface);
+     }
    free(texture);
 }
 
@@ -78,12 +83,26 @@ e3d_texture_size_get(const E3D_Texture *texture, int *w, int *h)
 }
 
 void
-e3d_texture_set(E3D_Texture *texture, Evas_GL_Image *im)
+e3d_texture_set(Evas_Engine_GL_Context *gc,
+                E3D_Texture *texture,
+                Evas_GL_Image *im)
 {
    texture->surface = im;
+   evas_gl_common_image_ref(im);
+
+   evas_gl_common_image_update(gc, im);
+
    texture->tex = im->tex->pt->texture;
    texture->w = im->w;
    texture->h = im->h;
+   texture->x = im->tex->x;
+   texture->y = im->tex->y;
+}
+
+Evas_GL_Image *
+e3d_texture_get(E3D_Texture *texture)
+{
+   return texture ? texture->surface : NULL;
 }
 
 static inline GLenum

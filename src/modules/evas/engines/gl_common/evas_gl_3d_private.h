@@ -106,6 +106,7 @@ struct _E3D_Draw_Data
 
 struct _E3D_Texture
 {
+   int               x, y;
    int               w, h;
    Evas_GL_Image     *surface;
 

@@ -359,9 +359,6 @@ struct _Evas_3D_Texture
    /* Proxy data. */
    Evas_Object      *source;
 
-   /* Evas_GL_Image */
-   void             *surface;
-
    /* Engine-side object. */
    void             *engine_data;
 };
@@ -1352,6 +1349,7 @@ struct _Evas_Func
    void  (*texture_filter_set)           (void *data, void *texture, Evas_3D_Texture_Filter min, Evas_3D_Texture_Filter mag);
    void  (*texture_filter_get)           (void *data, void *texture, Evas_3D_Texture_Filter *min, Evas_3D_Texture_Filter *mag);
    void  (*texture_image_set)            (void *data, void *texture, void *image);
+   void *(*texture_image_get)            (void *data, void *texture);
 };
 
 struct _Evas_Image_Save_Func
