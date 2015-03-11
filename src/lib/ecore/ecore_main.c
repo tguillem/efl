@@ -2143,7 +2143,7 @@ _ecore_main_win32_select(int             nfds EINA_UNUSED,
    if (!sockets)
      return -1;
 
-   objects = (HANDLE)malloc((fds_nbr + eina_inlist_count(EINA_INLIST_GET(win32_handlers))) * sizeof(HANDLE));
+   objects = (HANDLE)malloc((fds_nbr) * sizeof(HANDLE));
    if (!objects)
      {
         free(sockets);
@@ -2185,11 +2185,14 @@ _ecore_main_win32_select(int             nfds EINA_UNUSED,
      }
 
    /* store the HANDLEs in the objects to wait for */
+   /* @fixme The win32_handlers handlers are corrupted need to find another way to resolve this */
+/*
    EINA_INLIST_FOREACH(win32_handlers, wh)
      {
         objects[objects_nbr] = wh->h;
         objects_nbr++;
      }
+*/
 
    /* Empty the queue before waiting */
    while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
@@ -2270,10 +2273,13 @@ _ecore_main_win32_select(int             nfds EINA_UNUSED,
           {
              /* regular main loop, start from head */
               win32_handler_current = win32_handlers;
+/*
           }
         else
           {
+*/
              /* recursive main loop, continue from where we were */
+/*
               win32_handler_current = (Ecore_Win32_Handler *)EINA_INLIST_GET(win32_handler_current)->next;
           }
 
@@ -2294,8 +2300,26 @@ _ecore_main_win32_select(int             nfds EINA_UNUSED,
                        wh->references--;
                     }
                }
-             if (win32_handler_current) /* may have changed in recursive main loops */
-               win32_handler_current = (Ecore_Win32_Handler *)EINA_INLIST_GET(win32_handler_current)->next;
+*/
+//             if (win32_handler_current) /* may have changed in recursive main loops */
+//               win32_handler_current = (Ecore_Win32_Handler *)EINA_INLIST_GET(win32_handler_current)->next;
+              wh = win32_handler_current;
+              if (wh)
+                {
+                   if (objects[result - WAIT_OBJECT_0] == wh->h)
+                     {
+                        if (!wh->delete_me)
+                          {
+                             wh->references++;
+                             if (!wh->func(wh->data, wh))
+                               {
+                                  wh->delete_me = EINA_TRUE;
+                                  win32_handlers_delete_me = EINA_TRUE;
+                               }
+                             wh->references--;
+                          }
+                     }
+                }
           }
         res = 1;
      }

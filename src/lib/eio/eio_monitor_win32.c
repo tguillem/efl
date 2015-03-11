@@ -281,17 +281,17 @@ _eio_monitor_win32_watcher_new(Eio_Monitor      *monitor,
         goto close_event;
      }
 
+   w->monitor = monitor;
+   w->monitor_file = monitor_file;
+   w->monitor_parent = monitor_parent;
+   w->file = eina_stringshare_ref(file);
+   w->current = eina_stringshare_ref(current);
    w->h = ecore_main_win32_handler_add(w->event,
                                        _eio_monitor_win32_cb,
                                        w);
    if (!w->h)
      goto close_event;
 
-   w->monitor = monitor;
-   w->monitor_file = monitor_file;
-   w->monitor_parent = monitor_parent;
-   w->file = eina_stringshare_ref(file);
-   w->current = eina_stringshare_ref(current);
 
    return w;
 
