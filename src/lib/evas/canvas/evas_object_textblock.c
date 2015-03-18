@@ -3574,6 +3574,31 @@ _layout_text_cutoff_get(Ctxt *c, Evas_Object_Textblock_Format *fmt,
    return -1;
 }
 
+
+static Evas_Object_Textblock_Text_Item *
+_layout_item_text_split(Ctxt *c,
+      Evas_Object_Textblock_Text_Item *ti, Eina_List *lti, size_t cut)
+{
+   Evas_Object_Textblock_Text_Item *new_ti = NULL;
+
+   if (!IS_AT_END(ti, cut) && (ti->text_props.text_len > 0))
+     {
+        new_ti = _layout_text_item_new(c, ti->parent.format);
+        new_ti->parent.text_node = ti->parent.text_node;
+        new_ti->parent.text_pos = ti->parent.text_pos + cut;
+        new_ti->parent.merge = EINA_TRUE;
+
+        evas_common_text_props_split(&ti->text_props,
+                                     &new_ti->text_props, cut);
+        _layout_text_add_logical_item(c, new_ti, lti);
+     }
+   if (new_ti)
+     {
+        _text_item_update_sizes(c, ti);
+     }
+   return new_ti;
+}
+
 /**
  * @internal
  * Split before cut, and strip if str[cut - 1] is a whitespace.
@@ -3589,22 +3614,11 @@ _layout_item_text_split_strip_white(Ctxt *c,
       Evas_Object_Textblock_Text_Item *ti, Eina_List *lti, size_t cut)
 {
    const Eina_Unicode *ts;
-   Evas_Object_Textblock_Text_Item *new_ti = NULL, *white_ti = NULL;
+   Evas_Object_Textblock_Text_Item *new_ti, *white_ti = NULL;
 
    ts = GET_ITEM_TEXT(ti);
 
-   if (!IS_AT_END(ti, cut) && (ti->text_props.text_len > 0))
-     {
-        new_ti = _layout_text_item_new(c, ti->parent.format);
-        new_ti->parent.text_node = ti->parent.text_node;
-        new_ti->parent.text_pos = ti->parent.text_pos + cut;
-        new_ti->parent.merge = EINA_TRUE;
-
-        evas_common_text_props_split(&ti->text_props,
-                                     &new_ti->text_props, cut);
-        _layout_text_add_logical_item(c, new_ti, lti);
-     }
-
+   new_ti = _layout_item_text_split(c, ti, lti, cut);
    /* Strip the previous white if needed */
    if ((cut >= 1) && _is_white(ts[cut - 1]) && (ti->text_props.text_len > 0))
      {
@@ -3628,7 +3642,9 @@ _layout_item_text_split_strip_white(Ctxt *c,
           }
      }
 
-   if (new_ti || white_ti)
+   /* if new_ti != NULL, then the size is already updated in the
+    * called function _layout_item_text_split*/
+   if (white_ti)
      {
         _text_item_update_sizes(c, ti);
      }
