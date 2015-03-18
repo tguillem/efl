@@ -4732,6 +4732,24 @@ _layout_par_append_ellipsis(Ctxt *c)
    ellip_ti->parent.ln = c->ln;
    c->x += ellip_ti->parent.adv;
 }
+static char *
+_line_breaks_update(Evas_Object_Textblock_Item *it)
+{
+   char *line_breaks;
+   const char *lang;
+   lang = (it->format->font.fdesc) ?
+      it->format->font.fdesc->lang : "";
+   size_t len =
+      eina_ustrbuf_length_get(
+            it->text_node->unicode);
+   line_breaks = malloc(len);
+   if (!line_breaks)
+      return NULL;
+   set_linebreaks_utf32((const utf32_t *)
+         eina_ustrbuf_string_get(
+            it->text_node->unicode),
+         len, lang, line_breaks);
+}
 
 /* 0 means go ahead, 1 means break without an error, 2 means
  * break with an error, should probably clean this a bit (enum/macro)
@@ -4915,19 +4933,7 @@ _layout_par(Ctxt *c)
                     {
                        /* Only relevant in those cases */
                        if (it->format->wrap_word || it->format->wrap_mixed)
-                         {
-                            const char *lang;
-                            lang = (it->format->font.fdesc) ?
-                               it->format->font.fdesc->lang : "";
-                            size_t len =
-                               eina_ustrbuf_length_get(
-                                     it->text_node->unicode);
-                            line_breaks = malloc(len);
-                            set_linebreaks_utf32((const utf32_t *)
-                                  eina_ustrbuf_string_get(
-                                     it->text_node->unicode),
-                                  len, lang, line_breaks);
-                         }
+                          line_breaks = _line_breaks_update(it);
                     }
                   if (c->ln->items)
                      line_start = c->ln->items->text_pos;
