@@ -171,6 +171,7 @@ ecore_wl_init(const char *name)
    if (!(_ecore_wl_disp->wl.display = wl_display_connect(name)))
      {
         ERR("Could not connect to Wayland display");
+        //FIXME: Add some re-connect logic here
         goto exit_ecore_disp_connect;
      }
 
