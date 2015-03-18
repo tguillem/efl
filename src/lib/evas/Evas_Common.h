@@ -3475,6 +3475,16 @@ struct _Evas_Textblock_Rectangle
 };
 
 /**
+ * Format type for obstacle object registering
+ */
+typedef enum _Evas_Textblock_Obstacle_Format
+{
+   EVAS_TEXTBLOCK_OBSTACLE_DISABLED,
+   EVAS_TEXTBLOCK_OBSTACLE_LINE,
+   EVAS_TEXTBLOCK_OBSTACLE_FLOAT,
+} Evas_Textblock_Obstacle_Format;
+
+/**
  * Text type for evas textblock.
  */
 typedef enum _Evas_Textblock_Text_Type

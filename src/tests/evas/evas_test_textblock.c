@@ -3291,6 +3291,68 @@ START_TEST(evas_textblock_delete)
 }
 END_TEST;
 
+/* Runs x,y in [from,to] range */
+static void
+_obstacle_run(Evas_Object *tb, Evas_Object *obj,
+      Evas_Coord from_x, Evas_Coord to_x,
+      Evas_Coord from_y, Evas_Coord to_y,
+      Evas_Coord bh)
+{
+   Evas_Coord fw, fh;
+   Evas_Coord x, y;
+   for (y = from_y; y <= to_y; y+=5)
+     {
+        for (x = from_x; x <= to_x; x+=5)
+          {
+             evas_object_move(obj, x, y);
+             evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+             /* the obstacle size is large enough to assume that adding it
+              * will at least make the formatted height value bigger */
+             ck_assert_int_ge(fh, bh);
+          }
+     }
+}
+
+START_TEST(evas_textblock_obstacle)
+{
+   START_TB_TEST();
+
+   Evas_Coord fw, fh; // original formatted size
+   Evas_Object *rect;
+   Eina_Bool was_registered;
+
+   const char *buf =
+      "This is an example text. We test the obstacle"
+      " in this text. Evas Objects can now register themselves as obstacles."
+      " Once they do, the text will flow with respect to the obstacles."
+      " Some modes of flow are supported: The text can flow around the obstacle,"
+      " act as if the obstacle covers whole lines, or act the same (ignoring"
+      " the obstacle).";
+   rect = evas_object_rectangle_add(evas);
+   evas_object_resize(rect, 50, 50);
+
+   evas_object_textblock_text_markup_set(tb, buf);
+   evas_object_resize(tb, 500, 100);
+   evas_textblock_cursor_format_prepend(cur, "<wrap=word>");
+   evas_object_textblock_size_formatted_get(tb, &fw, &fh);
+
+   was_registered = evas_object_textblock_obstacle_unregister(tb, rect);
+   ck_assert(!was_registered);
+   evas_object_textblock_obstacle_register(tb, rect, EVAS_TEXTBLOCK_OBSTACLE_FLOAT);
+   evas_object_show(rect);
+
+   /* Compare formatted size with and without obstacle */
+   _obstacle_run(tb, rect, 0, fw, fh / 2, fh / 2, fh);
+   /* Now, with a bigger obstacle */
+   evas_object_resize(rect, 150, 150);
+   _obstacle_run(tb, rect, 0, fw, fh / 2, fh / 2, fh);
+
+   was_registered = evas_object_textblock_obstacle_unregister(tb, rect);
+   ck_assert(was_registered);
+
+   END_TB_TEST();
+}
+END_TEST;
 void evas_test_textblock(TCase *tc)
 {
    tcase_add_test(tc, evas_textblock_simple);
@@ -3312,5 +3374,6 @@ void evas_test_textblock(TCase *tc)
    tcase_add_test(tc, evas_textblock_wrapping);
    tcase_add_test(tc, evas_textblock_items);
    tcase_add_test(tc, evas_textblock_delete);
+   tcase_add_test(tc, evas_textblock_obstacle);
 }
 

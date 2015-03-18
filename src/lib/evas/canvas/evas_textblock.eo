@@ -295,6 +295,38 @@ class Evas.Textblock (Evas.Object)
             @in Evas_Textblock_Style *ts; /*@ the style to set. */
          }
       }
+      obstacle_register {
+         /*@
+         Add obstacle (evas) object @p eo_obs to be observed during layout of text.
+         The textblock does the layout of the text according to the position
+         of the obstacle. Changes in registered obstacles are observed,
+         including their visibility.
+         @p fmt describes the format of the obstacles.
+         Supported formats are "FLOAT", "LINE" and "DISABLED", that instruct
+         the layout work to wrap text around the obstacle, add empty line(s)
+         in its place, or just ignore the obstacle, respectively.
+
+         @return Returns true on success, false on failure.
+
+         @since 1.14 */
+         params {
+            @in Eo *eo_obs;
+            @in Evas_Textblock_Obstacle_Format fmt;
+         }
+         return: bool;
+      }
+      obstacle_unregister {
+         /*@
+         Removes @p eo_obs from observation during text layout
+
+         @return Returns true on success, false on failure.
+
+         @since 1.14 */
+         params {
+            @in Eo *eo_obs;
+         }
+         return: bool;
+      }
    }
    implements {
       Eo.Base.constructor;
