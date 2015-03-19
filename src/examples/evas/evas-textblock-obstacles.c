@@ -46,6 +46,7 @@ static const char *commands = \
   "\tp - change obstacle's position\n"
   "\tt - change obstacle's type (rectangle/image)\n"
   "\tf - change obstacle's format\n"
+  "\tm - change obstacle's margin\n"
   "\th - print help\n";
 
 static const char *obs_img_path = PACKAGE_EXAMPLES_DIR EVAS_IMAGE_FOLDER "/kitty.png";
@@ -62,6 +63,9 @@ struct text_preset_data
 
    Evas_Coord         *obs_size_ptr;
    Evas_Coord          obs_size[3];
+
+   Evas_Coord         *obs_margin_ptr;
+   Evas_Coord          obs_margin[3];
 
    const Evas_Textblock_Obstacle_Format *obs_fmt_ptr;
    Evas_Textblock_Obstacle_Format obs_fmt[3];
@@ -172,6 +176,22 @@ _on_keydown(void        *data EINA_UNUSED,
 
         return;
      }
+
+   if (strcmp(ev->key, "m") == 0) /* change obstacle size */
+     {
+        Evas_Coord margin;
+        (d.t_data.obs_margin_ptr)++;
+        POINTER_CYCLE(d.t_data.obs_margin_ptr, d.t_data.obs_margin);
+        margin = *d.t_data.obs_margin_ptr;
+
+        evas_object_textblock_obstacle_margin_set(d.text, *d.t_data.obs_ptr,
+              margin, margin, margin, margin);
+
+        fprintf(stdout, "Changing obstacle margin to: %d\n", margin);
+
+        return;
+     }
+
    if (strcmp(ev->key, "p") == 0) /* change obstacle position */
      {
         Evas_Coord x, y;
@@ -235,6 +255,7 @@ main(void)
    {
       .font = {"DejaVu", "Courier", "Utopia"},
       .obs_size = {50, 70, 100},
+      .obs_margin = {1, 5, 10},
       .obs_fmt = {EVAS_TEXTBLOCK_OBSTACLE_DISABLED,
                   EVAS_TEXTBLOCK_OBSTACLE_LINE,
                   EVAS_TEXTBLOCK_OBSTACLE_FLOAT},

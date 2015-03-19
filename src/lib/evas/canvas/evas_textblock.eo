@@ -202,6 +202,37 @@ class Evas.Textblock (Evas.Object)
             Evas_Coord b;
          }
       }
+      obstacle_margin {
+         get {
+            /*@
+            Get margin to @eo_obs obstacle object
+
+            @return Returns true on success, false on failure or if @eo_obs
+            isn't a registered object.
+
+            @since 1.14 */
+            return: bool;
+         }
+         set {
+            /*@
+            Get margin to @eo_obs obstacle object
+
+            @return Returns true on success, false on failure or if @eo_obs
+            isn't a registered object.
+
+            @since 1.14 */
+            return: bool;
+         }
+         keys {
+              Eo *eo_obs; /*@ the registered object */
+         }
+         values {
+              Evas_Coord marginl; /*@ left margin. */
+              Evas_Coord marginr; /*@ right margin. */
+              Evas_Coord margint; /*@ top margin. */
+              Evas_Coord marginb; /*@ bottom margin. */
+         }
+      }
    }
    methods {
       line_number_geometry_get @const {

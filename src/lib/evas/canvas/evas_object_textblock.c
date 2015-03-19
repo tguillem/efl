@@ -487,6 +487,7 @@ struct _Evas_Textblock_Obstacle
    Evas_Textblock_Obstacle_Format fmt;
    Evas_Coord x, y, w, h;
    Evas_Coord dx, dy;
+   Evas_Coord marginl, marginr, margint, marginb;
    Eina_Bool changed : 1;
    Eina_Bool handled : 1;
 };
@@ -7097,11 +7098,11 @@ _obstacle_update(Evas_Textblock_Obstacle *obs, Eo *obj,  Eo *eo_obj)
    eo_do(eo_obj, evas_obj_position_get(&ox, &oy), evas_obj_size_get(&ow, &oh));
    evas_object_geometry_get(obj, &x, &y, &w, &h);
 
-   obs->x = ox - x;
-   obs->y = oy - y;
+   obs->x = ox - obs->marginl - x;
+   obs->y = oy - obs->margint - y;
+   obs->w = ow + obs->marginr + obs->marginl;
+   obs->h = oh + obs->marginb + obs->margint;
    obs->changed = EINA_TRUE;
-   obs->w = ow;
-   obs->h = oh;
 }
 
 static Evas_Textblock_Obstacle *
@@ -7261,6 +7262,63 @@ _evas_textblock_obstacle_unregister(Eo *eo_obj EINA_UNUSED, Evas_Textblock_Data 
    _obstacle_free(eo_obj, obs);
    _evas_textblock_changed(obj, eo_obj);
    obj->obstacle_changed = EINA_TRUE;
+
+   return EINA_TRUE;
+}
+
+EOLIAN static Eina_Bool
+_evas_textblock_obstacle_margin_set(Eo *eo_obj EINA_UNUSED, Evas_Textblock_Data *obj, Eo *eo_obs,
+      Evas_Coord marginl, Evas_Coord marginr,
+      Evas_Coord margint, Evas_Coord marginb)
+{
+   Evas_Textblock_Obstacle *obs;
+   Eina_List *i;
+
+   if (!eo_isa(eo_obs, EVAS_OBJECT_CLASS))
+      return EINA_FALSE;
+
+   EINA_LIST_FOREACH(obj->obstacles, i, obs)
+     {
+        if (eo_obs == obs->eo_obj)
+          {
+             break;
+          }
+     }
+   if (!i) return EINA_FALSE;
+
+   obs->marginl = marginl;
+   obs->marginr = marginr;
+   obs->margint = margint;
+   obs->marginb = marginb;
+   _obstacle_update(obs, eo_obj, eo_obs);
+   _evas_textblock_changed(obj, eo_obj);
+   obj->obstacle_changed = EINA_TRUE;
+
+   return EINA_TRUE;
+}
+
+EOLIAN static Eina_Bool
+_evas_textblock_obstacle_margin_get(Eo *eo_obj EINA_UNUSED, Evas_Textblock_Data *obj, Eo *eo_obs, Evas_Coord *marginl, Evas_Coord *marginr, Evas_Coord *margint, Evas_Coord *marginb)
+{
+   Evas_Textblock_Obstacle *obs;
+   Eina_List *i;
+
+   if (!eo_isa(eo_obs, EVAS_OBJECT_CLASS))
+      return EINA_FALSE;
+
+   EINA_LIST_FOREACH(obj->obstacles, i, obs)
+     {
+        if (eo_obs == obs->eo_obj)
+          {
+             break;
+          }
+     }
+   if (!i) return EINA_FALSE;
+
+   if (marginl) *marginl = obs->marginl;
+   if (marginr) *marginr = obs->marginr;
+   if (margint) *margint = obs->margint;
+   if (marginb) *marginb = obs->marginb;
 
    return EINA_TRUE;
 }
