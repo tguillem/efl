@@ -144,6 +144,10 @@ _ecore_wl_reconnect(void)
    if (reconnect_count >= 5)
      _ecore_wl_signal_exit();
 
+   // Provide already assigned uuid
+   //if (pixmap->uuid)
+   //  session_recovery_provide_uuid(_ecore_wl_disp->wl.session_recovery, pixmap->uuid)
+
    while (!_ecore_wl_disp->init_done)
      wl_display_dispatch(_ecore_wl_disp->wl.display);
 }
