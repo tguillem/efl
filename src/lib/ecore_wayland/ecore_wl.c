@@ -112,6 +112,29 @@ _ecore_wl_init_wait(void)
      wl_display_dispatch(_ecore_wl_disp->wl.display);
 }
 
+
+static void
+_ecore_wl_reconnect(void)
+{
+	// TODO make reconnect counter and sleep time configurable
+   int reconnect_count;
+
+   for (reconnect_count = 0; reconnect_count < 5; reconnect_count++)
+     {
+        ecore_wl_init(NULL);
+        if (_ecore_wl_disp->wl.display)
+          break;
+        usleep(500000); // Sleep for 0.5s
+     }
+
+   /* In case reconnect fails exit as before */
+   if (reconnect_count >= 5)
+     _ecore_wl_signal_exit();
+
+   while (!_ecore_wl_disp->init_done)
+     wl_display_dispatch(_ecore_wl_disp->wl.display);
+}
+
 EAPI int
 ecore_wl_init(const char *name)
 {
@@ -552,7 +575,8 @@ err:
 
         /* raise exit signal */
         ERR("Wayland socket error: %s", strerror(errno));
-        _ecore_wl_signal_exit();
+        _ecore_wl_reconnect();
+        //_ecore_wl_signal_exit();
 
         return ECORE_CALLBACK_CANCEL;
      }
@@ -576,7 +600,8 @@ _ecore_wl_cb_handle_data(void *data, Ecore_Fd_Handler *hdl)
      {
         ERR("Received error on wayland display fd");
         _ecore_wl_fatal_error = EINA_TRUE;
-        _ecore_wl_signal_exit();
+        _ecore_wl_reconnect();
+        //_ecore_wl_signal_exit();
 
         return ECORE_CALLBACK_CANCEL;
      }
@@ -596,8 +621,8 @@ _ecore_wl_cb_handle_data(void *data, Ecore_Fd_Handler *hdl)
      {
         _ecore_wl_fatal_error = EINA_TRUE;
 
-        /* raise exit signal */
-        _ecore_wl_signal_exit();
+        _ecore_wl_reconnect();
+        //_ecore_wl_signal_exit();
 
         return ECORE_CALLBACK_CANCEL;
      }
