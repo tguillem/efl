@@ -84,8 +84,15 @@ enum _Ecore_Wl_Window_Buffer_Type
    ECORE_WL_WINDOW_BUFFER_TYPE_SHM
 };
 
+enum _Ecore_Wl_Selection
+{
+   ECORE_WL_SELECTION_CNP,
+   ECORE_WL_SELECTION_DND
+};
+
 typedef enum _Ecore_Wl_Window_Type Ecore_Wl_Window_Type;
 typedef enum _Ecore_Wl_Window_Buffer_Type Ecore_Wl_Window_Buffer_Type;
+typedef enum _Ecore_Wl_Selection Ecore_Wl_Selection;
 
 /** @since 1.7.6 */
 struct _Ecore_Wl_Global
@@ -210,6 +217,7 @@ struct _Ecore_Wl_Event_Selection_Data_Ready
    char *data;
    int len;
    Eina_Bool done;
+   Ecore_Wl_Selection selection;
 };
 
 struct _Ecore_Wl_Event_Interfaces_Bound

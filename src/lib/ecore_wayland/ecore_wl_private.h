@@ -263,6 +263,7 @@ struct _Ecore_Wl_Dnd_Source
 
    struct wl_data_offer *data_offer;
    struct wl_array types;
+   Ecore_Wl_Selection selection;
 
    int refcount;
    int fd;
