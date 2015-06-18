@@ -63,6 +63,7 @@
  */
 #include "evas_common_private.h"
 #include "evas_private.h"
+#include "evas_textblock_common.h"
 
 //#define LYDBG(f, args...) printf(f, ##args)
 #define LYDBG(f, args...)
@@ -133,77 +134,6 @@ static const char o_type[] = "textblock";
      } \
    while(0)
 
-/* private struct for textblock object internal data */
-/**
- * @internal
- * @typedef Evas_Textblock_Data
- * The actual textblock object.
- */
-typedef struct _Evas_Object_Textblock             Evas_Textblock_Data;
-/**
- * @internal
- * @typedef Evas_Object_Style_Tag
- * The structure used for finding style tags.
- */
-typedef struct _Evas_Object_Style_Tag             Evas_Object_Style_Tag;
-/**
- * @internal
- * @typedef Evas_Object_Style_Tag
- * The structure used for finding style tags.
- */
-typedef struct _Evas_Object_Style_Tag_Base        Evas_Object_Style_Tag_Base;
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Node_Text
- * A text node.
- */
-typedef struct _Evas_Object_Textblock_Node_Text   Evas_Object_Textblock_Node_Text;
-/*
- * Defined in Evas.h
-typedef struct _Evas_Object_Textblock_Node_Format Evas_Object_Textblock_Node_Format;
-*/
-
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Paragraph
- * A layouting paragraph.
- */
-typedef struct _Evas_Object_Textblock_Paragraph   Evas_Object_Textblock_Paragraph;
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Line
- * A layouting line.
- */
-typedef struct _Evas_Object_Textblock_Line        Evas_Object_Textblock_Line;
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Item
- * A layouting item.
- */
-typedef struct _Evas_Object_Textblock_Item        Evas_Object_Textblock_Item;
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Item
- * A layouting text item.
- */
-typedef struct _Evas_Object_Textblock_Text_Item        Evas_Object_Textblock_Text_Item;
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Format_Item
- * A layouting format item.
- */
-typedef struct _Evas_Object_Textblock_Format_Item Evas_Object_Textblock_Format_Item;
-/**
- * @internal
- * @typedef Evas_Object_Textblock_Format
- * A textblock format.
- */
-typedef struct _Evas_Object_Textblock_Format      Evas_Object_Textblock_Format;
-/**
- * @internal
- * @typedef Evas_Textblock_Selection_Iterator
- * A textblock selection iterator.
- */
 typedef struct _Evas_Textblock_Selection_Iterator Evas_Textblock_Selection_Iterator;
 /**
  * @internal
@@ -279,35 +209,6 @@ struct _Evas_Object_Style_Tag
 {
    EINA_INLIST;
    Evas_Object_Style_Tag_Base tag;  /**< Base style object for holding style information. */
-};
-
-struct _Evas_Object_Textblock_Node_Text
-{
-   EINA_INLIST;
-   Eina_UStrbuf                       *unicode;  /**< Actual paragraph text. */
-   char                               *utf8;  /**< Text in utf8 format. */
-   Evas_Object_Textblock_Node_Format  *format_node; /**< Points to the last format node before the paragraph, or if there is none, to the first format node within the paragraph.*/
-   Evas_Object_Textblock_Paragraph    *par;  /**< Points to the paragraph node of which this node is a part. */
-   Eina_Bool                           dirty : 1;  /**< EINA_TRUE if already handled/format changed, else EINA_FALSE. */
-   Eina_Bool                           is_new : 1;  /**< EINA_TRUE if its a new paragraph, else EINA_FALSE. */
-};
-
-struct _Evas_Textblock_Node_Format
-{
-   EINA_INLIST;
-   const char                         *format;  /**< Cached, parsed and translated version of orig_format. */
-   const char                         *orig_format;  /**< Original format information. */
-   Evas_Object_Textblock_Node_Text    *text_node;  /**< The text node it's pointing to. */
-   size_t                              offset;  /**< Offset from the last format node of the same text. */
-   struct {
-      unsigned char l, r, t, b;
-   } pad;  /**< Amount of padding required. */
-   unsigned char                       anchor : 2;  /**< ANCHOR_NONE, ANCHOR_A or ANCHOR_ITEM. */
-   Eina_Bool                           opener : 1;  /**< EINA_TRUE if opener, else EINA_FALSE. */
-   Eina_Bool                           own_closer : 1;  /**< EINA_TRUE if own_closer, else EINA_FALSE. */
-   Eina_Bool                           visible : 1;  /**< EINA_TRUE if format is visible format, else EINA_FALSE. */
-   Eina_Bool                           format_change : 1;  /**< EINA_TRUE if the format of the textblock has changed, else EINA_FALSE. */
-   Eina_Bool                           is_new : 1;  /**< EINA_TRUE if its a new format node, else EINA_FALSE */
 };
 
 /* The default tags to use */
@@ -498,6 +399,7 @@ struct _Evas_Object_Textblock
    Eina_List                          *anchors_a;
    Eina_List                          *anchors_item;
    Eina_List                          *obstacles;
+   Eina_List                          *extensions;
    int                                 last_w, last_h;
    struct {
       int                              l, r, t, b;
@@ -518,6 +420,7 @@ struct _Evas_Object_Textblock
    Eina_Bool                           format_changed : 1;
    Eina_Bool                           have_ellipsis : 1;
    Eina_Bool                           legacy_newline : 1;
+   Eina_Bool                           done : 1;
 };
 
 struct _Evas_Textblock_Selection_Iterator
@@ -2563,6 +2466,7 @@ struct _Ctxt
    Evas_Object_Textblock_Format *fmt;
 
    Eina_List *obs_infos; /**< Extra information for items in current line. */
+   Eina_List *lext;
 
    int x, y;
    int w, h;
@@ -4865,7 +4769,6 @@ _layout_par(Ctxt *c)
                }
           }
      }
-
    c->y = c->par->y;
 
 
@@ -4894,7 +4797,7 @@ _layout_par(Ctxt *c)
 
    Eina_Bool item_preadv = EINA_FALSE;
    Evas_Textblock_Obstacle *obs = NULL;
-   for (i = c->par->logical_items ; i ; )
+   for (i = c->par->logical_items ; i && (ret != 3) ; )
      {
         Evas_Coord prevdescent = 0, prevascent = 0;
         int adv_line = 0;
@@ -4956,19 +4859,34 @@ _layout_par(Ctxt *c)
               * fast path.
               * Other values of 0.0 <= ellipsis < 1.0 are handled in
               * _layout_par_ellipsis_items */
-             if ((it->format->ellipsis == 1.0) && (c->h >= 0) &&
+             if ((c->h >= 0) &&
                    ((2 * it->h + c->y >
                      c->h - c->o->style_pad.t - c->o->style_pad.b) ||
                     (!it->format->wrap_word && !it->format->wrap_char &&
                      !it->format->wrap_mixed)))
                {
-                  _layout_handle_ellipsis(c, it, i);
-                  ret = 1;
-                  goto end;
+                  if (it->format->ellipsis == 1.0)
+                    {
+                       _layout_handle_ellipsis(c, it, i);
+                       ret = 1;
+                       goto end;
+                    }
+                  else if (c->lext)
+                    {
+                       Evas_Object_Textblock_Line *last_ln =
+                          (Evas_Object_Textblock_Line *) EINA_INLIST_GET(c->par->lines)->last;
+                       if (!last_ln->items)
+                         {
+                         }
+                       /* We don't break here because we need to split this
+                        * line and finalize it. (ret == 3) will be checked
+                        * in the appropriate area in the code */
+                       ret = 3;
+                    }
                }
              /* If we want to wrap and it's worth checking for wrapping
               * (i.e there's actually text). */
-             else if (((wrap > 0) || it->format->wrap_word || it->format->wrap_char ||
+             if (((wrap > 0) || it->format->wrap_word || it->format->wrap_char ||
                 it->format->wrap_mixed) && it->text_node)
                {
                   size_t line_start;
@@ -5004,7 +4922,7 @@ _layout_par(Ctxt *c)
                      line_start = it->text_pos;
 
                   /* Only when doing non-obstacle handling */
-                  if (!obs)
+                  if (!obs && (ret != 3))
                      adv_line = 1;
                   /* If we don't already have a wrap point from before */
                   if (wrap < 0)
@@ -5141,7 +5059,7 @@ _layout_par(Ctxt *c)
                          }
                        else
                          {
-                            _layout_line_advance(c, it->format);
+                            if (ret != 3) _layout_line_advance(c, it->format);
                             item_preadv = EINA_FALSE;
                          }
                     }
@@ -5575,6 +5493,46 @@ _layout_pre(Ctxt *c, int *style_pad_l, int *style_pad_r, int *style_pad_t,
      }
 }
 
+/* Initializes the ctxt with current textblock data */
+static inline void
+_ctxt_new(Ctxt *c, Evas_Object *eo_obj)
+{
+   Evas_Object_Protected_Data *obj = eo_data_scope_get(eo_obj, EVAS_OBJECT_CLASS);
+   Evas_Textblock_Data *o = eo_data_scope_get(eo_obj, EVAS_TEXTBLOCK_EXTENSION_CLASS);
+
+   Evas_Object_Textblock_Paragraph *npar = malloc(sizeof(Evas_Object_Textblock_Paragraph));
+
+   *npar = *c->par;
+   npar->lines = NULL;
+
+
+   c->obj = eo_obj;
+   c->o = o;
+   c->wmax = c->hmax = 0;
+   c->ascent = c->descent = 0;
+   c->maxascent = c->maxdescent = 0;
+   /* detect the last laid-out item */
+   if (c->par->lines)
+     {
+        Evas_Object_Textblock_Line *last_ln =
+           (Evas_Object_Textblock_Line *) EINA_INLIST_GET(c->par->lines)->last;
+        Evas_Object_Textblock_Item *last_it;
+        if (last_ln->items)
+          {
+             last_it =
+                (Evas_Object_Textblock_Item *) EINA_INLIST_GET(last_ln->items)->last;
+          }
+        npar->logical_items = eina_list_data_find_list(c->par->logical_items, last_it);
+        npar->logical_items = eina_list_next(npar->logical_items);
+     }
+   /* The start of the logical items of the next context will be the first
+    * non-laid-out item */
+   c->par = npar;
+   c->w = obj->cur->geometry.w;
+   c->h = obj->cur->geometry.h;
+   c->paragraphs = o->paragraphs = c->par;
+}
+
 /**
  * @internal
  * Create the layout from the nodes.
@@ -5593,6 +5551,9 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
    Evas_Textblock_Data *o = eo_data_ref(eo_obj, MY_CLASS);
    Ctxt ctxt, *c;
    int style_pad_l = 0, style_pad_r = 0, style_pad_t = 0, style_pad_b = 0;
+   Ctxt save_ctxt;
+   Evas_Object_Textblock_Paragraph *save_par;
+   Eina_Bool extending = EINA_FALSE;
 
    LYDBG("ZZ: layout %p %4ix%4i | w=%4i | last_w=%4i --- '%s'\n", eo_obj, w, h, obj->cur->geometry.w, o->last_w, o->markup_text);
    /* setup context */
@@ -5675,61 +5636,148 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
 
    /* Start of visual layout creation */
    {
+      /* Starting with first (current tb's) context,
+       * and switching to next contexts, if required. */
+      c->lext = o->extensions;
       Evas_Object_Textblock_Paragraph *last_vis_par = NULL;
-      int par_index_step = o->num_paragraphs / TEXTBLOCK_PAR_INDEX_SIZE;
-      int par_count = 1; /* Force it to take the first one */
-      int par_index_pos = 0;
-
-      c->position = TEXTBLOCK_POSITION_START;
-
-      if (par_index_step == 0) par_index_step = 1;
-
-      /* Clear all of the index */
-      memset(o->par_index, 0, sizeof(o->par_index));
-
-      EINA_INLIST_FOREACH(c->paragraphs, c->par)
+      Eina_Bool done = EINA_TRUE;
+      do
         {
-           _layout_update_par(c);
+           int par_index_step = c->o->num_paragraphs / TEXTBLOCK_PAR_INDEX_SIZE;
+           int par_count = 1; /* Force it to take the first one */
+           int par_index_pos = 0;
+           Eina_Bool allow_extend = EINA_TRUE; //TODO: make this a property
 
-           /* Break if we should stop here. */
-           if (_layout_par(c))
+           c->position = TEXTBLOCK_POSITION_START;
+
+           if (par_index_step == 0) par_index_step = 1;
+
+           /* Clear all of the index */
+           memset(c->o->par_index, 0, sizeof(c->o->par_index));
+
+           c->position = TEXTBLOCK_POSITION_START;
+
+           EINA_INLIST_FOREACH(c->paragraphs, c->par)
              {
-                last_vis_par = c->par;
-                break;
+                int par_ret;
+                _layout_update_par(c);
+                /* FIXME: overrides what's done above, but just
+                 * needed to confirm if it fixes extensions */
+                if (!done) // implies we're extending
+                  {
+                     c->par->y = 0;
+                  }
+
+                /* Break if we should stop here. */
+                if ((par_ret = _layout_par(c)))
+                  {
+                     last_vis_par = c->par;
+                     if (allow_extend && (par_ret == 3))
+                       {
+                          done = EINA_FALSE;
+                          break;
+                       }
+                  }
+                else
+                  {
+                     done = EINA_TRUE;
+                  }
+
+                if ((par_index_pos < TEXTBLOCK_PAR_INDEX_SIZE) && (--par_count == 0))
+                  {
+                     par_count = par_index_step;
+
+                     c->o->par_index[par_index_pos++] = c->par;
+                  }
+
+                if (par_ret == 3)
+                  {
+                     break;
+                  }
              }
 
-           if ((par_index_pos < TEXTBLOCK_PAR_INDEX_SIZE) && (--par_count == 0))
+           /* Get the last visible paragraph in the layout */
+           if (!last_vis_par && c->paragraphs)
+              last_vis_par = (Evas_Object_Textblock_Paragraph *)
+                 EINA_INLIST_GET(c->paragraphs)->last;
+
+
+           if (last_vis_par)
              {
-                par_count = par_index_step;
-
-                o->par_index[par_index_pos++] = c->par;
+                c->hmax = last_vis_par->y + last_vis_par->h +
+                   _layout_last_line_max_descent_adjust_calc(c, last_vis_par);
              }
-        }
 
-      /* Mark all the rest of the paragraphs as invisible */
-      if (c->par)
+           /* Vertically align the textblock */
+           if ((o->valign > 0.0) && (c->h > c->hmax))
+             {
+                Evas_Coord adjustment = (c->h - c->hmax) * o->valign;
+                Evas_Object_Textblock_Paragraph *par;
+                EINA_INLIST_FOREACH(c->paragraphs, par)
+                  {
+                     par->y += adjustment;
+                  }
+             }
+           if (extending)
+             {
+                c->o->formatted.w = c->wmax;
+                c->o->formatted.h = c->hmax;
+                _evas_textblock_changed(c->o, c->obj);
+             }
+           if (!c->lext) done = EINA_TRUE;
+           else if (!done)
+             {
+                /* Move to next context, if extensions exist.
+                 * Note: We do not need to allocate space for the
+                 * new context. We only store the first context
+                 * in ctxt_tmp, and then restore it.
+                 * The context. */
+                Evas_Object *next_o = eina_list_data_get(c->lext);
+                c->lext = eina_list_next(c->lext);
+                /* Saving the master object's ctxt */
+                if (!extending)
+                  {
+                     save_ctxt = ctxt;
+                     save_par = c->par;
+                  }
+                _ctxt_new(c, next_o);
+                extending = EINA_TRUE;
+             }
+        } while (!done);
+   }
+ /* restore if extended */
+ if (extending)
+   {
+      ctxt = save_ctxt;
+      c->par = save_par;
+   }
+
+ /* Mark all the rest of the paragraphs as invisible, in the last
+  * textblock extension (or just this textblock) */
+ if (c->par)
+   {
+      c->par = (Evas_Object_Textblock_Paragraph *)
+         EINA_INLIST_GET(c->par)->next;
+      while (c->par)
         {
+           c->par->visible = 0;
            c->par = (Evas_Object_Textblock_Paragraph *)
               EINA_INLIST_GET(c->par)->next;
-           while (c->par)
-             {
-                c->par->visible = 0;
-                c->par = (Evas_Object_Textblock_Paragraph *)
-                   EINA_INLIST_GET(c->par)->next;
-             }
-        }
-
-      /* Get the last visible paragraph in the layout */
-      if (!last_vis_par && c->paragraphs)
-         last_vis_par = (Evas_Object_Textblock_Paragraph *)
-            EINA_INLIST_GET(c->paragraphs)->last;
-
-      if (last_vis_par)
-        {
-           c->hmax = last_vis_par->y + last_vis_par->h +
-              _layout_last_line_max_descent_adjust_calc(c, last_vis_par);
         }
    }
+ /* mark the rest of the extensions (if exists) as changed */
+ while (c->lext)
+   {
+      Evas_Object *ext_eo = eina_list_data_get(c->lext);
+      Evas_Textblock_Data *ext_obj = eo_data_scope_get(ext_eo, EVAS_TEXTBLOCK_EXTENSION_CLASS);
+      _paragraphs_clear(ext_eo, ext_obj->paragraphs);
+      _evas_textblock_changed(ext_obj, ext_eo);
+      printf("Changing unused extension\n");
+      c->lext = eina_list_next(c->lext);
+   }
+
+   if (w_ret) *w_ret = c->wmax;
+   if (h_ret) *h_ret = c->hmax;
 
    /* Clean the rest of the format stack */
    while (c->format_stack)
@@ -5739,32 +5787,22 @@ _layout(const Evas_Object *eo_obj, int w, int h, int *w_ret, int *h_ret)
         _format_unref_free(c->obj, c->fmt);
      }
 
-   if (w_ret) *w_ret = c->wmax;
-   if (h_ret) *h_ret = c->hmax;
-
-   /* Vertically align the textblock */
-   if ((o->valign > 0.0) && (c->h > c->hmax))
+   /* XXX: leaving it out of the scope of the "extension" logic, as am not
+    * pretty sure of the intention of this */
+   if (!extending)
      {
-        Evas_Coord adjustment = (c->h - c->hmax) * o->valign;
-        Evas_Object_Textblock_Paragraph *par;
-        EINA_INLIST_FOREACH(c->paragraphs, par)
+        if ((o->style_pad.l != style_pad_l) || (o->style_pad.r != style_pad_r) ||
+              (o->style_pad.t != style_pad_t) || (o->style_pad.b != style_pad_b))
           {
-             par->y += adjustment;
+             o->style_pad.l = style_pad_l;
+             o->style_pad.r = style_pad_r;
+             o->style_pad.t = style_pad_t;
+             o->style_pad.b = style_pad_b;
+             _paragraphs_clear(eo_obj, c->paragraphs);
+             LYDBG("ZZ: ... layout #2\n");
+             _layout(eo_obj, w, h, w_ret, h_ret);
           }
      }
-
-   if ((o->style_pad.l != style_pad_l) || (o->style_pad.r != style_pad_r) ||
-       (o->style_pad.t != style_pad_t) || (o->style_pad.b != style_pad_b))
-     {
-        o->style_pad.l = style_pad_l;
-        o->style_pad.r = style_pad_r;
-        o->style_pad.t = style_pad_t;
-        o->style_pad.b = style_pad_b;
-        _paragraphs_clear(eo_obj, c->paragraphs);
-        LYDBG("ZZ: ... layout #2\n");
-        _layout(eo_obj, w, h, w_ret, h_ret);
-     }
-
    c->o->obstacle_changed = EINA_FALSE;
 }
 
@@ -6658,6 +6696,19 @@ evas_object_textblock_text_markup_prepend(Evas_Textblock_Cursor *cur, const char
           }
      }
    _evas_textblock_changed(o, eo_obj);
+   /* All the content is about to be renewed, so clear the fields off the
+    * extensions */
+   Evas_Object *ext_eo;
+   Eina_List *l;
+   EINA_LIST_FOREACH(o->extensions, l, ext_eo)
+     {
+        Evas_Textblock_Data *ext_obj = eo_data_scope_get(ext_eo, EVAS_TEXTBLOCK_EXTENSION_CLASS);
+        ext_obj->paragraphs = NULL;
+        /* also clear the paragraphs index */
+        // memset(ext_obj->par_index, 0, sizeof(ext_obj->par_index));
+        // ^ may not be required as it's always cleaned on layout_par
+
+     }
 }
 
 
@@ -11123,7 +11174,7 @@ _evas_textblock_clear(Eo *eo_obj, Evas_Textblock_Data *o)
    if (o->paragraphs)
      {
 	_paragraphs_free(eo_obj, o->paragraphs);
-	o->paragraphs = NULL;
+        o->paragraphs = NULL;
      }
 
    _nodes_clear(eo_obj);
@@ -11437,6 +11488,27 @@ _evas_textblock_style_insets_get(Eo *eo_obj, Evas_Textblock_Data *o, Evas_Coord 
    if (b) *b = o->style_pad.b;
 }
 
+/* Textblock Extensions
+ * Since 1.15 */
+EOLIAN static Eina_Bool
+_evas_textblock_extension_append(Eo *eo_obj, Evas_Textblock_Data *o,
+      Evas_Object *ext_eo)
+{
+   /* TODO: add to list of extensions, add callback for deletion handling,
+    * check type is correct (EVAS_OBJECT_TEXTBLOCK_EXTENSION) */
+   o->extensions = eina_list_append(o->extensions, ext_eo);
+   return EINA_TRUE;
+}
+
+EOLIAN static Eina_Bool
+_evas_textblock_extension_remove(Eo *eo_obj, Evas_Textblock_Data *o,
+      Evas_Object *ext_eo)
+{
+   o->extensions = eina_list_remove(o->extensions, ext_eo);
+   return EINA_TRUE;
+}
+
+
 EOLIAN static void
 _evas_textblock_eo_base_dbg_info_get(Eo *eo_obj, Evas_Textblock_Data *o EINA_UNUSED, Eo_Dbg_Info *root)
 {
@@ -11528,6 +11600,12 @@ evas_object_textblock_free(Evas_Object *eo_obj)
      }
    if (o->repch) eina_stringshare_del(o->repch);
    if (o->ellip_ti) _item_free(eo_obj, NULL, _ITEM(o->ellip_ti));
+
+   while(o->extensions)
+     {
+        o->extensions = eina_list_remove_list(o->extensions, o->extensions);
+     }
+
   _format_command_shutdown();
 
   /* remove obstacles */
@@ -12316,7 +12394,21 @@ _evas_textblock_format_offset_get(const Evas_Object_Textblock_Node_Format *n)
 }
 #endif
 
-#if 0
+/* save for the extension to use */
+void
+evas_object_textblock_extension_render_master(
+      Evas_Object *eo_obj EINA_UNUSED,
+      Evas_Object_Protected_Data *obj,
+      void *type_private_data,
+      void *output, void *context, void *surface,
+      int x, int y, Eina_Bool do_async)
+{
+   evas_object_textblock_render(eo_obj, obj, type_private_data, output,
+         context, surface, x, y, do_async);
+}
+
+
+#if 1
 /* Good for debugging */
 EAPI void
 pfnode(Evas_Object_Textblock_Node_Format *n)

@@ -43,7 +43,7 @@
 
 #define RENDER_METHOD_INVALID            0x00000000
 
-//#define REND_DBG 1
+// #define REND_DBG 1
 
 typedef struct _Evas_Layer                  Evas_Layer;
 typedef struct _Evas_Size                   Evas_Size;
@@ -533,6 +533,7 @@ OPAQUE_TYPE(Evas_Font_Instance); /* General type for RGBA_Font_Int */
 #define MAGIC_OBJ_TEXT             0x77757721
 #define MAGIC_OBJ_SMART            0x78c7c73f
 #define MAGIC_OBJ_TEXTBLOCK        0x71737744
+#define MAGIC_OBJ_TEXTBLOCK_EXTENSION        0x71737744
 #define MAGIC_OBJ_TEXTGRID         0x7377a7ca
 #define MAGIC_SMART                0x7c6977c5
 #define MAGIC_OBJ_SHAPE            0x747297f7

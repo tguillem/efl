@@ -868,7 +868,9 @@ pending_change(void *data, void *gdata EINA_UNUSED)
    Evas_Object *eo_obj;
 
    Evas_Object_Protected_Data *obj = data;
+
    eo_obj = obj->object;
+
    if (obj->delete_me) return EINA_FALSE;
    if (obj->pre_render_done)
      {
@@ -1283,7 +1285,6 @@ evas_render_mapped(Evas_Public_Data *e, Evas_Object *eo_obj,
         RD(level, "}\n");
         return clean_them;
      }
-
    // set render_pre - for child objs that may not have gotten it.
    obj->pre_render_done = EINA_TRUE;
    RD(level, "  hasmap: %s [can_map:%p (%d)] cur.map:%p cur.usemap:%d\n",
