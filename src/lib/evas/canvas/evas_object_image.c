@@ -1247,47 +1247,124 @@ evas_object_image_data_convert(Evas_Object *eo_obj, Evas_Colorspace to_cspace)
 }
 
 EOLIAN static void
-_evas_image_data_set(Eo *eo_obj, Evas_Image_Data *o, void *data)
+_evas_image_data_set(Eo *eo_obj, Evas_Image_Data *o,
+                     void *data, int width, int height, Evas_Colorspace cspace,
+                     Eina_Bool copy, int stride)
 {
    Evas_Object_Protected_Data *obj = eo_data_scope_get(eo_obj, EVAS_OBJECT_CLASS);
    void *p_data;
    Eina_Bool resize_call = EINA_FALSE;
-
 
    evas_object_async_block(obj);
    evas_render_rendering_wait(obj->layer->evas);
 
    _evas_object_image_cleanup(eo_obj, obj, o);
    p_data = o->engine_data;
-   if (data)
+
+   eo_do(eo_obj,
+         efl_gfx_view_size_set(width, height);
+         evas_obj_image_colorspace_set(cspace);
+         );
+   if (data && ((width <= 0) || (height <= 0) ||
+                (width != o->cur->image.w) || (height != o->cur->image.h)))
      {
-        if (o->engine_data)
+        ERR("The image dimensions are invalid: %dx%d", width, height);
+        return;
+     }
+
+   if (!copy || !data)
+     {
+        if (data)
           {
-             o->engine_data = ENFN->image_data_put(ENDT, o->engine_data, data);
+             if (o->engine_data)
+               {
+                  o->engine_data = ENFN->image_data_put(ENDT, o->engine_data, data);
+               }
+             else
+               {
+                  o->engine_data = ENFN->image_new_from_data(ENDT,
+                                                             o->cur->image.w,
+                                                             o->cur->image.h,
+                                                             data,
+                                                             o->cur->has_alpha,
+                                                             o->cur->cspace);
+               }
+             if (o->engine_data)
+               {
+                  if (ENFN->image_scale_hint_set)
+                    ENFN->image_scale_hint_set(ENDT, o->engine_data, o->scale_hint);
+
+                  if (ENFN->image_content_hint_set)
+                    ENFN->image_content_hint_set(ENDT, o->engine_data, o->content_hint);
+
+                  if (!stride)
+                    {
+                       if (ENFN->image_stride_get)
+                         ENFN->image_stride_get(ENDT, o->engine_data, &stride);
+                       else
+                          stride = o->cur->image.w * 4;
+                    }
+
+                  if (o->cur->image.stride != stride)
+                    {
+                       EINA_COW_IMAGE_STATE_WRITE_BEGIN(o, state_write)
+                             state_write->image.stride = stride;
+                       EINA_COW_IMAGE_STATE_WRITE_END(o, state_write);
+                    }
+               }
+             o->written = EINA_TRUE;
           }
         else
           {
-             o->engine_data = ENFN->image_new_from_data(ENDT,
-                                                        o->cur->image.w,
-                                                        o->cur->image.h,
-                                                        data,
-                                                        o->cur->has_alpha,
-                                                        o->cur->cspace);
+             if (o->engine_data)
+               ENFN->image_free(ENDT, o->engine_data);
+             o->load_error = EVAS_LOAD_ERROR_NONE;
+             if ((o->cur->image.w != 0) || (o->cur->image.h != 0))
+               resize_call = EINA_TRUE;
+
+             EINA_COW_IMAGE_STATE_WRITE_BEGIN(o, state_write)
+             {
+                state_write->image.w = 0;
+                state_write->image.h = 0;
+                state_write->image.stride = 0;
+             }
+             EINA_COW_IMAGE_STATE_WRITE_END(o, state_write);
+
+             o->engine_data = NULL;
           }
+        /* FIXME - in engine call above
+        if (o->engine_data)
+          o->engine_data = ENFN->image_alpha_set(ENDT, o->engine_data, o->cur->has_alpha);
+        */
+        if (o->pixels_checked_out > 0) o->pixels_checked_out--;
+        if (p_data != o->engine_data)
+          {
+             EVAS_OBJECT_WRITE_IMAGE_FREE_FILE_AND_KEY(o);
+             o->pixels_checked_out = 0;
+          }
+        if (resize_call) evas_object_inform_call_image_resize(eo_obj);
+     }
+   else // copy && data
+     {
+        if (o->engine_data)
+          ENFN->image_free(ENDT, o->engine_data);
+        o->engine_data = ENFN->image_new_from_copied_data
+              (ENDT, o->cur->image.w, o->cur->image.h, data,
+               o->cur->has_alpha, o->cur->cspace);
         if (o->engine_data)
           {
-             int stride = 0;
-
+             o->engine_data = ENFN->image_alpha_set(ENDT, o->engine_data, o->cur->has_alpha);
              if (ENFN->image_scale_hint_set)
                ENFN->image_scale_hint_set(ENDT, o->engine_data, o->scale_hint);
-
              if (ENFN->image_content_hint_set)
                ENFN->image_content_hint_set(ENDT, o->engine_data, o->content_hint);
-
-             if (ENFN->image_stride_get)
-               ENFN->image_stride_get(ENDT, o->engine_data, &stride);
-             else
-               stride = o->cur->image.w * 4;
+             if (!stride)
+               {
+                  if (ENFN->image_stride_get)
+                    ENFN->image_stride_get(ENDT, o->engine_data, &stride);
+                  else
+                    stride = o->cur->image.w * 4;
+               }
 
              if (o->cur->image.stride != stride)
                {
@@ -1295,38 +1372,29 @@ _evas_image_data_set(Eo *eo_obj, Evas_Image_Data *o, void *data)
                     state_write->image.stride = stride;
                   EINA_COW_IMAGE_STATE_WRITE_END(o, state_write);
                }
-         }
-       o->written = EINA_TRUE;
-     }
-   else
-     {
-        if (o->engine_data)
-          ENFN->image_free(ENDT, o->engine_data);
-        o->load_error = EVAS_LOAD_ERROR_NONE;
-        if ((o->cur->image.w != 0) || (o->cur->image.h != 0))
-          resize_call = EINA_TRUE;
-
-        EINA_COW_IMAGE_STATE_WRITE_BEGIN(o, state_write)
-          {
-             state_write->image.w = 0;
-             state_write->image.h = 0;
-             state_write->image.stride = 0;
+             o->written = EINA_TRUE;
           }
-        EINA_COW_IMAGE_STATE_WRITE_END(o, state_write);
-
-        o->engine_data = NULL;
-     }
-/* FIXME - in engine call above
-   if (o->engine_data)
-     o->engine_data = ENFN->image_alpha_set(ENDT, o->engine_data, o->cur->has_alpha);
-*/
-   if (o->pixels_checked_out > 0) o->pixels_checked_out--;
-   if (p_data != o->engine_data)
-     {
-        EVAS_OBJECT_WRITE_IMAGE_FREE_FILE_AND_KEY(o);
         o->pixels_checked_out = 0;
+        EVAS_OBJECT_WRITE_IMAGE_FREE_FILE_AND_KEY(o);
      }
-   if (resize_call) evas_object_inform_call_image_resize(eo_obj);
+}
+
+EAPI void
+evas_object_image_data_set(Evas_Object *eo_obj, void *data)
+{
+   Evas_Image_Data *o = eo_data_scope_get(eo_obj, MY_CLASS);
+
+   _evas_image_data_set(eo_obj, o, data, o->cur->image.w, o->cur->image.h,
+                        o->cur->cspace, EINA_FALSE, 0);
+}
+
+EAPI void
+evas_object_image_data_copy_set(Evas_Object *eo_obj, void *data)
+{
+   Evas_Image_Data *o = eo_data_scope_get(eo_obj, MY_CLASS);
+
+   _evas_image_data_set(eo_obj, o, data, o->cur->image.w, o->cur->image.h,
+                        o->cur->cspace, EINA_TRUE, 0);
 }
 
 EOLIAN static void*
@@ -1435,51 +1503,6 @@ _evas_image_preload_cancel(Eo *eo_obj, Evas_Image_Data *_pd EINA_UNUSED)
    Evas_Object_Protected_Data *obj = eo_data_scope_get(eo_obj, EVAS_OBJECT_CLASS);
    evas_object_async_block(obj);
    _image_preload_internal(eo_obj, _pd, EINA_TRUE);
-}
-
-EOLIAN static void
-_evas_image_data_copy_set(Eo *eo_obj, Evas_Image_Data *o, void *data)
-{
-   Evas_Object_Protected_Data *obj = eo_data_scope_get(eo_obj, EVAS_OBJECT_CLASS);
-
-   if (!data) return;
-   evas_object_async_block(obj);
-   _evas_object_image_cleanup(eo_obj, obj, o);
-   if ((o->cur->image.w <= 0) ||
-       (o->cur->image.h <= 0)) return;
-   if (o->engine_data)
-     ENFN->image_free(ENDT, o->engine_data);
-   o->engine_data = ENFN->image_new_from_copied_data(ENDT,
-                                                     o->cur->image.w,
-                                                     o->cur->image.h,
-                                                     data,
-                                                     o->cur->has_alpha,
-                                                     o->cur->cspace);
-   if (o->engine_data)
-     {
-        int stride = 0;
-
-        o->engine_data =
-          ENFN->image_alpha_set(ENDT, o->engine_data, o->cur->has_alpha);
-        if (ENFN->image_scale_hint_set)
-          ENFN->image_scale_hint_set(ENDT, o->engine_data, o->scale_hint);
-        if (ENFN->image_content_hint_set)
-          ENFN->image_content_hint_set(ENDT, o->engine_data, o->content_hint);
-        if (ENFN->image_stride_get)
-          ENFN->image_stride_get(ENDT, o->engine_data, &stride);
-        else
-          stride = o->cur->image.w * 4;
-
-        if (o->cur->image.stride != stride)
-          {
-             EINA_COW_IMAGE_STATE_WRITE_BEGIN(o, state_write)
-               state_write->image.stride = stride;
-             EINA_COW_IMAGE_STATE_WRITE_END(o, state_write);
-          }
-        o->written = EINA_TRUE;
-     }
-   o->pixels_checked_out = 0;
-   EVAS_OBJECT_WRITE_IMAGE_FREE_FILE_AND_KEY(o);
 }
 
 EOLIAN static void
@@ -1994,9 +2017,10 @@ EOLIAN static void
 _evas_image_colorspace_set(Eo *eo_obj, Evas_Image_Data *o, Evas_Colorspace cspace)
 {
    Evas_Object_Protected_Data *obj = eo_data_scope_get(eo_obj, EVAS_OBJECT_CLASS);
-   evas_object_async_block(obj);
 
+   evas_object_async_block(obj);
    _evas_object_image_cleanup(eo_obj, obj, o);
+   if (o->cur->cspace == cspace) return;
 
    EINA_COW_IMAGE_STATE_WRITE_BEGIN(o, state_write)
      state_write->cspace = cspace;

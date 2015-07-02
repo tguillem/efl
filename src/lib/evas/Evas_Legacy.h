@@ -2892,7 +2892,6 @@ image) to start drawing from.
 EAPI void evas_object_image_fill_get(const Evas_Object *obj, Evas_Coord *x, Evas_Coord *y, Evas_Coord *w, Evas_Coord *h);
 
 /**
- *
  * Sets the size of the given image object.
  *
  * This function will scale down or crop the image so that it is
@@ -2907,7 +2906,6 @@ EAPI void evas_object_image_fill_get(const Evas_Object *obj, Evas_Coord *x, Evas
 EAPI void evas_object_image_size_set(Evas_Object *obj, int w, int h);
 
 /**
- *
  * Retrieves the size of the given image object.
  *
  * See @ref evas_object_image_size_set() for more details.
@@ -2916,6 +2914,47 @@ EAPI void evas_object_image_size_set(Evas_Object *obj, int w, int h);
  * @param[out] h The new height of the image.
  */
 EAPI void evas_object_image_size_get(const Evas_Object *obj, int *w, int *h);
+
+// to be deprecated with better eo api
+/**
+ * Replaces the raw image data of the given image object.
+ *
+ * This function lets the application replace an image object's
+ * internal pixel buffer with an user-allocated one. For best results,
+ * you should generally first call evas_object_image_size_set() with
+ * the width and height for the new buffer.
+ *
+ * This call is best suited for when you will be using image data with
+ * different dimensions than the existing image data, if any. If you
+ * only need to modify the existing image in some fashion, then using
+ * evas_object_image_data_get() is probably what you are after.
+ *
+ * Note that the caller is responsible for freeing the buffer when
+ * finished with it, as user-set image data will not be automatically
+ * freed when the image object is deleted.
+ *
+ * See @ref evas_object_image_data_get() for more details.
+ *
+ * @param[in] data The raw data to replace.
+ */
+EAPI void evas_object_image_data_copy_set(Evas_Object *obj, void *data);
+
+// to be depracted with better eo api
+/**
+ * Sets the raw image data of the given image object.
+ *
+ * Note that the raw data must be of the same size (see
+ * evas_object_image_size_set(), which has to be called @b before this
+ * one) and colorspace (see evas_object_image_colorspace_set()) of the
+ * image. If data is @c NULL, the current image data will be
+ * freed. Naturally, if one does not set an image object's data
+ * manually, it will still have one, allocated by Evas.
+ *
+ * @see evas_object_image_data_get()
+ *
+ * @param[in] data The raw data, or @c NULL.
+ */
+EAPI void evas_object_image_data_set(Evas_Object *obj, void *data);
 
 /*
  * Converts the raw image data of the given image object to the
