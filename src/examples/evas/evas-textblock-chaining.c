@@ -112,6 +112,7 @@ _on_keydown(void        *data EINA_UNUSED,
         PTRINC(text);
         PTRCYCLE(text);
         evas_object_textblock_text_markup_set(d.text, PTRDATA(text));
+        printf("Changing text to: %s\n", PTRDATA(text));
         return;
      }
    if (strncmp(ev->key, "s", 1) == 0) /* size */
@@ -120,6 +121,8 @@ _on_keydown(void        *data EINA_UNUSED,
         PTRCYCLE(size);
         printf("Changing size to (%d, %d)\n", PTRDATA(size), PTRDATA(size));
         evas_object_resize(d.text, PTRDATA(size), PTRDATA(size));
+        evas_object_resize(d.ext, PTRDATA(size), PTRDATA(size));
+        evas_object_move(d.ext, PTRDATA(size) + 30, 40);
         return;
      }
 
@@ -130,12 +133,13 @@ _on_keydown(void        *data EINA_UNUSED,
         if (attached)
           {
              eo_do(d.text, evas_obj_textblock_extension_remove(d.ext));
+             printf("Extension detached\n");
           }
         else
           {
              eo_do(d.text, evas_obj_textblock_extension_append(d.ext));
+             printf("Extension attached\n");
           }
-        evas_object_resize(d.text, PTRDATA(size), PTRDATA(size));
         return;
      }
 }
@@ -155,6 +159,15 @@ main(void)
       " which is hopefully flow into the extension evas object"
       " so we can actually see how the textblock chaining mechanism"
       " works on real examples";
+   const char *text3 =
+      "<wrap=word>Now here we check paragraphs,"
+      " so if there is more than<ps>"
+      "one paragraph, it should still work<ps>."
+      " There is many many more examples to try with this new feature<ps>"
+      "Now, this is a story all about how My life got flipped-turned upside down<ps>"
+      "And I'd like to take a minute Just sit right there, I'll tell"
+      "you how I became the prince of a town called Bel Air";
+
    char *stbuf =
       "DEFAULT='font=Sans font_size=12 color=#000 wrap=word"
       "text_class=entry'";
@@ -164,7 +177,7 @@ main(void)
    struct text_preset_data init_data =
    {
       .size = {100, 200, 300},
-      .text = {text1, text2, text2},
+      .text = {text1, text2, text3},
    };
 
    d.t_data = init_data;
@@ -207,7 +220,7 @@ main(void)
    evas_object_resize(d.text, PTRDATA(size), PTRDATA(size));
    evas_object_resize(d.ext, PTRDATA(size), PTRDATA(size));
    evas_object_move(d.text, 0, 0);
-   evas_object_move(d.ext, PTRDATA(size) + 20, 0);
+   evas_object_move(d.ext, PTRDATA(size) + 30, 40);
    evas_object_show(d.text);
    evas_object_show(d.ext);
 
