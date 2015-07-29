@@ -2116,12 +2116,6 @@ evgl_context_create(void *eng_data, EVGL_Context *share_ctx,
    if (evgl_engine->api_debug_mode)
      DBG("Creating context GLESv%d (eng = %p, shctx = %p)", version, eng_data, share_ctx);
 
-   if (!(rsc = _evgl_tls_resource_get()))
-        {
-           ERR("Error creating resources in tls.");
-           return NULL;
-        }
-
    // Allocate context object
    ctx = calloc(1, sizeof(EVGL_Context));
    if (!ctx)
