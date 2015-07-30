@@ -25,6 +25,7 @@ glsym_func_void_ptr glsym_evas_gl_engine_data_get = NULL;
 static void _surface_cap_print(int error);
 static void _surface_context_list_print();
 static void _internal_resources_destroy(void *eng_data, EVGL_Resource *rsc);
+static int _evgl_direct_renderable(EVGL_Resource *rsc, EVGL_Surface *sfc);
 
 // NOTE: These constants are "hidden", kinda non public API. They should not
 // be used unless you know exactly what you are doing.
@@ -60,6 +61,10 @@ _internal_resources_create(void *eng_data)
         ERR("Error allocating EVGL_Resource");
         return NULL;
      }
+   rsc->id = eina_thread_self();
+   rsc->error_state = EVAS_GL_SUCCESS;
+
+   if (rsc->id != evgl_engine->main_tid) return rsc;
 
    // Get display
    rsc->display = evgl_engine->funcs->display_get(eng_data);
@@ -91,8 +96,7 @@ _internal_resources_create(void *eng_data)
         ERR("Internal resource context creation failed.");
         goto error;
      }
-
-   rsc->error_state = EVAS_GL_SUCCESS;
+   ERR("[dy5] internal resources create (window %x, surface %x, context %x)", rsc->window, rsc->surface, rsc->context);
 
    return rsc;
 
@@ -106,6 +110,7 @@ _internal_resources_destroy(void *eng_data, EVGL_Resource *rsc)
 {
    if ((!eng_data) || (!rsc)) return;
 
+   ERR("[dy5] internal resources destroy (window %x, surface %x, context %x)", rsc->window, rsc->surface, rsc->context);
    if (rsc->context)
       evgl_engine->funcs->context_destroy(eng_data, rsc->context);
    if (rsc->surface)
@@ -117,7 +122,7 @@ _internal_resources_destroy(void *eng_data, EVGL_Resource *rsc)
 }
 
 static int
-_internal_resource_make_current(void *eng_data, EVGL_Context *ctx)
+_internal_resource_make_current(void *eng_data, EVGL_Surface *sfc, EVGL_Context *ctx)
 {
    EVGL_Resource *rsc = NULL;
    void *surface = NULL;
@@ -136,9 +141,12 @@ _internal_resource_make_current(void *eng_data, EVGL_Context *ctx)
 
    // Set context from input or from resource
    if (ctx)
-      context = ctx->context;
+     context = ctx->context;
    else
+   {
+      ERR("[dy5] Use rsc context %x", rsc->context);
       context = (void*)rsc->context;
+   }
 
    // Set the surface to evas surface if it's there
    if (rsc->id == evgl_engine->main_tid)
@@ -147,8 +155,32 @@ _internal_resource_make_current(void *eng_data, EVGL_Context *ctx)
    if (rsc->direct.surface)
       surface = (void*)rsc->direct.surface;
    else
+   {
+      ERR("[dy5] Use rsc surface %x", rsc->surface);
       surface = (void*)rsc->surface;
+   }
 
+   if (sfc)
+     {
+        if (_evgl_direct_renderable(rsc, sfc)) // Direct rendering
+          {
+          }
+        else if (ctx->pixmap_image_supported) // Pixmap surface
+          {
+             ERR("[dy5] Set pixmap surface");
+             if (sfc->indirect_sfc) surface = (void*)sfc->indirect_sfc;
+             if (ctx->indirect_context) context = (void*)ctx->indirect_context;
+          }
+        else if (sfc->pbuffer.native_surface) // Pbuffer surface
+          {
+             ERR("[dy5] Set pbuffer surface");
+             surface = (void*)sfc->pbuffer.native_surface;
+          }
+        else // FBO
+          {
+          }
+     }
+   
    // Do the make current
    if (evgl_engine->api_debug_mode)
      DBG("Calling make_current(%p, %p)", surface, context);
@@ -798,13 +830,14 @@ error:
 static int
 _surface_cap_init(void *eng_data)
 {
+   int ret = 0;
    int max_size = 0;
 
    // Do internal make current
-   if (!_internal_resource_make_current(eng_data, NULL))
+   if (!_internal_resource_make_current(eng_data, NULL, NULL))
      {
         ERR("Error doing an internal resource make current");
-        return 0;
+        return ret;
      }
 
    // Query the max width and height of the surface
@@ -853,13 +886,17 @@ _surface_cap_init(void *eng_data)
      {
         _surface_cap_print(0);
         DBG("Number of supported surface formats: %d", evgl_engine->caps.num_fbo_fmts);
-        return 1;
+        ret = 1;
      }
    else
      {
         ERR("There are no available surface formats. Error!");
-        return 0;
      }
+
+   // Destroy internal resources
+   _evgl_tls_resource_destroy(eng_data);
+
+   return ret;
 }
 
 static int
@@ -1173,16 +1210,8 @@ _surface_buffers_create(EVGL_Surface *sfc)
 
 
 static int
-_surface_buffers_allocate(void *eng_data, EVGL_Surface *sfc, int w, int h, int mc)
+_surface_buffers_allocate(void *eng_data EINA_UNUSED, EVGL_Surface *sfc, int w, int h)
 {
-   // Set the context current with resource context/surface
-   if (mc)
-      if (!_internal_resource_make_current(eng_data, NULL))
-        {
-           ERR("Error doing an internal resource make current");
-           return 0;
-        }
-
    // Create buffers
    if (sfc->color_fmt)
      {
@@ -1436,12 +1465,10 @@ _evgl_tls_resource_get(void)
         return NULL;
      }
 
-   rsc = eina_tls_get(evgl_engine->resource_key);
+   if (evgl_engine->resource_key)
+     rsc = eina_tls_get(evgl_engine->resource_key);
 
-   if (!rsc)
-      return NULL;
-   else
-      return rsc;
+   return rsc;
 }
 
 EVGL_Resource *
@@ -1456,6 +1483,15 @@ _evgl_tls_resource_create(void *eng_data)
         return NULL;
      }
 
+   // Initialize Resource TLS
+   ERR("[dy5] tls resource create (key %d)", evgl_engine->resource_key);
+   if (!evgl_engine->resource_key && eina_tls_new(&evgl_engine->resource_key) == EINA_FALSE)
+     {
+        ERR("Error creating tls key");
+        return NULL;
+     }
+   DBG("TLS KEY created: %d", evgl_engine->resource_key);
+
    // Create internal resources if it hasn't been created already
    if (!(rsc = _internal_resources_create(eng_data)))
      {
@@ -1468,7 +1504,7 @@ _evgl_tls_resource_create(void *eng_data)
      {
         // Add to the resource resource list for cleanup
         LKL(evgl_engine->resource_lock);
-        rsc->id = evgl_engine->resource_count++;
+        //rsc->id = evgl_engine->resource_count++;
         evgl_engine->resource_list = eina_list_prepend(evgl_engine->resource_list, rsc);
         LKU(evgl_engine->resource_lock);
         return rsc;
@@ -1506,6 +1542,7 @@ _evgl_tls_resource_destroy(void *eng_data)
         _internal_resources_destroy(eng_data, rsc);
      }
    eina_list_free(evgl_engine->resource_list);
+   evgl_engine->resource_list = NULL;
    LKU(evgl_engine->resource_lock);
 
    // Destroy TLS
@@ -1689,16 +1726,10 @@ evgl_engine_init(void *eng_data, const EVGL_Interface *efunc)
 
    // Assign functions
    evgl_engine->funcs = efunc;
-
-   // Initialize Resource TLS
-   if (eina_tls_new(&evgl_engine->resource_key) == EINA_FALSE)
-     {
-        ERR("Error creating tls key");
-        goto error;
-     }
-   DBG("TLS KEY created: %d", evgl_engine->resource_key);
-
    evgl_engine->safe_extensions = eina_hash_string_small_new(NULL);
+
+   // Main Thread ID
+   evgl_engine->main_tid = eina_thread_self();
 
    // Surface Caps
    if (!_surface_cap_init(eng_data))
@@ -1744,9 +1775,6 @@ evgl_engine_init(void *eng_data, const EVGL_Interface *efunc)
    if (s) debug_mode = atoi(s);
    if (debug_mode == 1)
       evgl_engine->api_debug_mode = 1;
-
-   // Maint Thread ID (get tid not available in eina thread yet)
-   evgl_engine->main_tid = 0;
 
    return evgl_engine;
 
@@ -1948,6 +1976,7 @@ evgl_pbuffer_surface_create(void *eng_data, Evas_GL_Config *cfg,
      }
 
    sfc->pbuffer.native_surface = pbuffer;
+   sfc->surface = pbuffer;
 
    // Keep track of all the created surfaces
    LKL(evgl_engine->resource_lock);
@@ -1988,18 +2017,36 @@ evgl_surface_destroy(void *eng_data, EVGL_Surface *sfc)
    if ((dbg = evgl_engine->api_debug_mode))
      DBG("Destroying surface sfc %p (eng %p)", sfc, eng_data);
 
-   // Make current to current context to destroy surface buffers
-   if (!_internal_resource_make_current(eng_data, rsc->current_ctx))
+   if (rsc->current_ctx)
      {
-        ERR("Error doing an internal resource make current");
-        return 0;
-     }
-
-   // Destroy created buffers
-   if (!_surface_buffers_destroy(sfc))
-     {
-        ERR("Error deleting surface resources.");
-        return 0;
+        // Make current to current context to destroy surface buffers
+        if (!_internal_resource_make_current(eng_data, NULL, rsc->current_ctx))
+          {
+             ERR("Error doing an internal resource make current");
+             return 0;
+          }
+     
+        if (/*(rsc->current_ctx) &&*/ (rsc->current_ctx->current_sfc == sfc) )
+          {
+             if (evgl_engine->api_debug_mode)
+               {
+                  ERR("The surface is still current before it's being destroyed.");
+                  ERR("Doing make_current(NULL, NULL)");
+               }
+             else
+               {
+                  WRN("The surface is still current before it's being destroyed.");
+                  WRN("Doing make_current(NULL, NULL)");
+               }
+             evgl_make_current(eng_data, NULL, NULL);
+          }
+     
+        // Destroy created buffers
+        if (!_surface_buffers_destroy(sfc))
+          {
+             ERR("Error deleting surface resources.");
+             return 0;
+          }
      }
 
    // Destroy indirect surface
@@ -2046,21 +2093,6 @@ evgl_surface_destroy(void *eng_data, EVGL_Surface *sfc)
           }
      }
 
-   if ((rsc->current_ctx) && (rsc->current_ctx->current_sfc == sfc) )
-     {
-        if (evgl_engine->api_debug_mode)
-          {
-             ERR("The surface is still current before it's being destroyed.");
-             ERR("Doing make_current(NULL, NULL)");
-          }
-        else
-          {
-             WRN("The surface is still current before it's being destroyed.");
-             WRN("Doing make_current(NULL, NULL)");
-          }
-        evgl_make_current(eng_data, NULL, NULL);
-     }
-
    if (sfc->current_ctx && sfc->current_ctx->current_sfc == sfc)
       sfc->current_ctx->current_sfc = NULL;
 
@@ -2092,7 +2124,6 @@ evgl_context_create(void *eng_data, EVGL_Context *share_ctx,
                     void *(*engine_data_get)(void *))
 {
    EVGL_Context *ctx   = NULL;
-   EVGL_Resource *rsc  = NULL;
 
    // A little bit ugly. But it works even when dlsym(DEFAULT) doesn't work.
    glsym_evas_gl_native_context_get = native_context_get;
@@ -2178,16 +2209,17 @@ evgl_context_destroy(void *eng_data, EVGL_Context *ctx)
    if (ctx->current_sfc && (ctx->current_sfc->current_ctx == ctx))
      ctx->current_sfc->current_ctx = NULL;
 
-   // Set the context current with resource context/surface
-   if (!_internal_resource_make_current(eng_data, NULL))
-     {
-        ERR("Error doing an internal resource make current");
-        return 0;
-     }
-
    // Delete the FBO
    if (ctx->surface_fbo)
-      glDeleteFramebuffers(1, &ctx->surface_fbo);
+     {
+        // Set the context current with resource context/surface
+        if (!_internal_resource_make_current(eng_data, NULL, ctx))
+          {
+             ERR("Error doing an internal resource make current");
+             return 0;
+          }
+        glDeleteFramebuffers(1, &ctx->surface_fbo);
+     }
 
    // Unset the currrent context
    if (dbg) DBG("Calling make_current(NULL, NULL)");
@@ -2300,7 +2332,7 @@ evgl_make_current(void *eng_data, EVGL_Surface *sfc, EVGL_Context *ctx)
      }
 
    // Do a make current
-   if (!_internal_resource_make_current(eng_data, ctx))
+   if (!_internal_resource_make_current(eng_data, sfc, ctx))
      {
         ERR("Error doing a make current with internal surface. Context: %p", ctx);
         evas_gl_common_error_set(eng_data, EVAS_GL_BAD_CONTEXT);
@@ -2358,7 +2390,7 @@ evgl_make_current(void *eng_data, EVGL_Surface *sfc, EVGL_Context *ctx)
                   // Destroy created resources
                   if (sfc->buffers_allocated)
                     {
-                       if (!_surface_buffers_allocate(eng_data, sfc, 0, 0, 0))
+                       if (!_surface_buffers_allocate(eng_data, sfc, 0, 0))
                          {
                             ERR("Unable to destroy surface buffers!");
                             evas_gl_common_error_set(eng_data, EVAS_GL_BAD_ALLOC);
@@ -2379,7 +2411,7 @@ evgl_make_current(void *eng_data, EVGL_Surface *sfc, EVGL_Context *ctx)
                        if (!sfc->buffers_allocated)
                          {
                             if (dbg) DBG("Allocating buffers for sfc %p", sfc);
-                            if (!_surface_buffers_allocate(eng_data, sfc, sfc->w, sfc->h, 0))
+                            if (!_surface_buffers_allocate(eng_data, sfc, sfc->w, sfc->h))
                               {
                                  ERR("Unable Create Specificed Surfaces.  Unsupported format!");
                                  evas_gl_common_error_set(eng_data, EVAS_GL_BAD_ALLOC);
@@ -2394,7 +2426,7 @@ evgl_make_current(void *eng_data, EVGL_Surface *sfc, EVGL_Context *ctx)
           {
              if (!sfc->buffers_allocated)
                {
-                  if (!_surface_buffers_allocate(eng_data, sfc, sfc->w, sfc->h, 0))
+                  if (!_surface_buffers_allocate(eng_data, sfc, sfc->w, sfc->h))
                     {
                        ERR("Unable Create Allocate Memory for Surface.");
                        evas_gl_common_error_set(eng_data, EVAS_GL_BAD_ALLOC);
@@ -2514,9 +2546,9 @@ evgl_make_current(void *eng_data, EVGL_Surface *sfc, EVGL_Context *ctx)
                     ERR("Could not detach current FBO");
                }
 
-             if (dbg) DBG("Calling make_current(%p, %p)", sfc->pbuffer.native_surface, ctx->context);
-             evgl_engine->funcs->make_current(eng_data, sfc->pbuffer.native_surface,
-                                              ctx->context, EINA_TRUE);
+             //if (dbg) DBG("Calling make_current(%p, %p)", sfc->pbuffer.native_surface, ctx->context);
+             //evgl_engine->funcs->make_current(eng_data, sfc->pbuffer.native_surface,
+             //                                 ctx->context, EINA_TRUE);
 
              // Bind to the previously bound buffer (may be 0)
              if (ctx->current_fbo)
