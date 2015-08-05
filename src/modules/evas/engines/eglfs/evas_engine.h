@@ -12,10 +12,16 @@
 
 # include <EGL/egl.h>
 # include <EGL/eglext.h>
-# include <EGL/eglmesaext.h>
+//# include <EGL/eglmesaext.h>
 # include <GLES2/gl2.h>
 # include <GLES2/gl2ext.h>
 # include "../gl_generic/Evas_Engine_GL_Generic.h"
+
+
+#ifndef EGL_WAYLAND_Y_INVERTED_WL
+#define EGL_WAYLAND_Y_INVERTED_WL 0x31D7 /* eglQueryWaylandBufferWL attribute */
+#endif
+
 
 extern int _evas_engine_eglfs_log_dom;
 extern int _extn_have_buffer_age;
