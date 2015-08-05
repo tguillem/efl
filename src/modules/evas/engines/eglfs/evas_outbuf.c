@@ -1,9 +1,32 @@
 #include "evas_engine.h"
 
+typedef struct _Evas_Eglfs_Bcm_Host Evas_Eglfs_Bcm_Host;
+
+struct _Evas_Eglfs_Bcm_Host
+{
+   Eina_Module               *mod;
+
+   void                      (*bcm_host_init)(void);
+   void                      (*bcm_host_deinit)(void);
+   int32_t                   (*graphics_get_display_size)(const uint16_t display_number,
+                                                          uint32_t *width,
+                                                          uint32_t *height);
+   DISPMANX_DISPLAY_HANDLE_T (*vc_dispmanx_display_open)(uint32_t p1);
+   DISPMANX_UPDATE_HANDLE_T  (*vc_dispmanx_update_start)(int32_t priority);
+   DISPMANX_ELEMENT_HANDLE_T (*vc_dispmanx_element_add)(DISPMANX_UPDATE_HANDLE_T update, DISPMANX_DISPLAY_HANDLE_T display,
+                                                        int32_t layer, const VC_RECT_T *dest_rect, DISPMANX_RESOURCE_HANDLE_T src,
+                                                        const VC_RECT_T *src_rect, DISPMANX_PROTECTION_T protection,
+                                                        VC_DISPMANX_ALPHA_T *alpha,
+                                                        DISPMANX_CLAMP_T *clamp, DISPMANX_TRANSFORM_T transform);
+   int                       (*vc_dispmanx_update_submit_sync)(DISPMANX_UPDATE_HANDLE_T update);
+
+};
+
 /* local variables */
 static Outbuf *_evas_eglfs_window = NULL;
 static EGLContext context = EGL_NO_CONTEXT;
 static int win_count = 0;
+static Evas_Eglfs_Bcm_Host *_bcmhost_lib = NULL;
 
 static Eina_Bool
 _evas_outbuf_make_current(void *data, void *doit)
@@ -28,6 +51,88 @@ _evas_outbuf_make_current(void *data, void *doit)
    return EINA_TRUE;
 }
 
+static void *
+_evas_eglfs_bcm_host_init(int w, int h)
+{
+
+
+
+   if (!_bcmhost_lib)
+     {
+        _bcmhost_lib = calloc(1, sizeof(Evas_Eglfs_Bcm_Host));
+        if ((_bcmhost_lib->mod = eina_module_new("libbcm_host.so"))) {
+           if (!eina_module_load(_bcmhost_lib->mod)) {
+              eina_module_free(_bcmhost_lib->mod);
+              _bcmhost_lib->mod = NULL;
+           }
+        }
+
+#define SYM(x) if (!(_bcmhost_lib->x = eina_module_symbol_get(_bcmhost_lib->mod, #x)))      \
+          goto error
+
+        SYM(bcm_host_init);
+        SYM(bcm_host_deinit);
+        SYM(graphics_get_display_size);
+        SYM(vc_dispmanx_display_open);
+        SYM(vc_dispmanx_update_start);
+        SYM(vc_dispmanx_element_add);
+        SYM(vc_dispmanx_update_submit_sync);
+     }
+
+   EGL_DISPMANX_WINDOW_T *win = calloc(1, sizeof(EGL_DISPMANX_WINDOW_T));
+
+   DISPMANX_ELEMENT_HANDLE_T dispman_element;
+   DISPMANX_DISPLAY_HANDLE_T dispman_display;
+   DISPMANX_UPDATE_HANDLE_T dispman_update;
+   VC_RECT_T dst_rect;
+   VC_RECT_T src_rect;
+   int32_t display_width, display_height;
+
+   _bcmhost_lib->bcm_host_init();
+
+   // create an EGL window surface, passing context width/height
+   int32_t success = _bcmhost_lib->graphics_get_display_size(0 /* LCD */,
+                                                             &display_width, &display_height);
+   if ( success < 0 )
+     {
+        return NULL;
+     }
+
+   dst_rect.x = 0;
+   dst_rect.y = 0;
+   dst_rect.width = w;
+   dst_rect.height = h;
+
+   src_rect.x = 0;
+   src_rect.y = 0;
+   src_rect.width = w << 16;
+   src_rect.height = h << 16;
+
+   dispman_display = _bcmhost_lib->vc_dispmanx_display_open(0);
+   dispman_update = _bcmhost_lib->vc_dispmanx_update_start(0);
+
+   dispman_element = _bcmhost_lib->vc_dispmanx_element_add(dispman_update,
+                                                           dispman_display,
+                                                           0 /*layer*/,
+                                                           &dst_rect,
+                                                           0 /*src*/,
+                                                           &src_rect,
+                                                           DISPMANX_PROTECTION_NONE,
+                                                           0 /*alpha*/,
+                                                           0/*clamp*/,
+                                                           0/*transform*/);
+
+   win->element = dispman_element;
+   win->width = display_width;
+   win->height = display_height;
+   _bcmhost_lib->vc_dispmanx_update_submit_sync(dispman_update);
+
+   return win;
+
+error:
+   return NULL;
+}
+
 static Eina_Bool
 _evas_outbuf_egl_setup(Outbuf *ob)
 {
@@ -38,6 +143,9 @@ _evas_outbuf_egl_setup(Outbuf *ob)
    EGLConfig *cfgs;
    const GLubyte *vendor, *renderer, *version, *glslversion;
    Eina_Bool blacklist = EINA_FALSE;
+
+
+   _evas_eglfs_bcm_host_init(ob->w, ob->h);
 
    /* setup egl surface */
    ctx_attr[0] = EGL_CONTEXT_CLIENT_VERSION;
@@ -60,7 +168,7 @@ _evas_outbuf_egl_setup(Outbuf *ob)
    else cfg_attr[n++] = 0;
    cfg_attr[n++] = EGL_NONE;
 
-   ob->egl.disp = eglGetDisplay(NULL);
+   ob->egl.disp = eglGetDisplay(EGL_DEFAULT_DISPLAY);
    if (ob->egl.disp  == EGL_NO_DISPLAY)
      {
         ERR("eglGetDisplay() fail. code=%#x", eglGetError());
