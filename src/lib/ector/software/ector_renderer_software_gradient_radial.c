@@ -12,8 +12,6 @@
 static void
 _update_radial_data(Ector_Renderer_Software_Gradient_Data *gdata)
 {
-   update_color_table(gdata);
-
    gdata->radial.cx = gdata->grd->radial.x;
    gdata->radial.cy = gdata->grd->radial.y;
    gdata->radial.cradius = gdata->grd->radius;
@@ -73,8 +71,11 @@ _ector_renderer_software_gradient_radial_ector_renderer_generic_base_draw(Eo *ob
 
 // Clearly duplicated and should be in a common place...
 static Eina_Bool
-_ector_renderer_software_gradient_radial_ector_renderer_software_base_fill(Eo *obj EINA_UNUSED, Ector_Renderer_Software_Gradient_Data *pd)
+_ector_renderer_software_gradient_radial_ector_renderer_software_base_fill(Eo *obj EINA_UNUSED,
+                                                                           Ector_Renderer_Software_Gradient_Data *pd)
 {
+   // lazy creation of color table
+   update_color_table(pd);
    ector_software_rasterizer_radial_gradient_set(pd->surface->software, pd);
    return EINA_TRUE;
 }
@@ -108,7 +109,8 @@ _ector_renderer_software_gradient_radial_eo_base_destructor(Eo *obj,
 }
 
 void
-_ector_renderer_software_gradient_radial_efl_gfx_gradient_base_stop_set(Eo *obj, Ector_Renderer_Software_Gradient_Data *pd, const Efl_Gfx_Gradient_Stop *colors, unsigned int length)
+_ector_renderer_software_gradient_radial_efl_gfx_gradient_base_stop_set(Eo *obj, Ector_Renderer_Software_Gradient_Data *pd,
+                                                                        const Efl_Gfx_Gradient_Stop *colors, unsigned int length)
 {
    eo_do_super(obj, ECTOR_RENDERER_SOFTWARE_GRADIENT_RADIAL_CLASS,
                efl_gfx_gradient_stop_set(colors, length));
