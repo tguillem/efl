@@ -29,6 +29,8 @@
 typedef struct _Ecore_Wl_Window Ecore_Wl_Window;
 # endif
 
+EAPI int ecore_wl2_init(const char *name);
+
 /* # ifdef __cplusplus */
 /* } */
 /* # endif */
