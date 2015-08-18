@@ -16,7 +16,7 @@ EAPI int ECORE_WL2_EVENT_GLOBAL_REMOVED = 0;
 
 /* public API functions */
 EAPI int
-ecore_wl2_init(const char *name)
+ecore_wl2_init(void)
 {
    if (++_ecore_wl2_init_count != 1) return _ecore_wl2_init_count;
 
