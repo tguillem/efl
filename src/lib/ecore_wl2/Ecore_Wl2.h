@@ -40,6 +40,12 @@ typedef struct _Ecore_Wl2_Global
    unsigned int id, version;
 } Ecore_Wl2_Global;
 
+typedef struct _Ecore_Wl2_Event_Global
+{
+   Eina_Stringshare *interface;
+   unsigned int id, version;
+} Ecore_Wl2_Event_Global;
+
 EAPI extern int ECORE_WL2_EVENT_GLOBAL_ADDED;
 EAPI extern int ECORE_WL2_EVENT_GLOBAL_REMOVED;
 

@@ -5,16 +5,29 @@
 #include "ecore_wl2_private.h"
 
 static void
+_cb_global_event_free(void *data EINA_UNUSED, void *event)
+{
+   Ecore_Wl2_Event_Global *ev;
+
+   ev = event;
+   eina_stringshare_del(ev->interface);
+   free(ev);
+}
+
+static void
 _cb_global_add(void *data, struct wl_registry *registry, unsigned int id, const char *interface, unsigned int version)
 {
    Ecore_Wl2_Display *ewd;
+   Ecore_Wl2_Event_Global *ev;
 
    ewd = data;
 
-   if (!eina_hash_find(ewd->globals, id))
+   /* test to see if we have already added this global to our hash */
+   if (!eina_hash_find(ewd->globals, &id))
      {
         Ecore_Wl2_Global *global;
 
+        /* allocate space for new global */
         global = calloc(1, sizeof(Ecore_Wl2_Global));
         if (!global) return;
 
@@ -22,22 +35,54 @@ _cb_global_add(void *data, struct wl_registry *registry, unsigned int id, const 
         global->interface = eina_stringshare_add(interface);
         global->version = version;
 
-        if (!eina_hash_direct_add(ewd->globals, global->id, global))
+        /* add this global to our hash */
+        if (!eina_hash_add(ewd->globals, &global->id, global))
           {
              eina_stringshare_del(global->interface);
              free(global);
           }
      }
+
+   /* allocate space for event structure */
+   ev = calloc(1, sizeof(Ecore_Wl2_Event_Global));
+   if (!ev) return;
+
+   ev->id = id;
+   ev->version = version;
+   ev->interface = eina_stringshare_add(interface);
+
+   /* raise an event saying a new global has been added */
+   ecore_event_add(ECORE_WL2_EVENT_GLOBAL_ADDED, ev,
+                   _cb_global_event_free, NULL);
 }
 
 static void
 _cb_global_remove(void *data, struct wl_registry *registry EINA_UNUSED, unsigned int id)
 {
    Ecore_Wl2_Display *ewd;
+   Ecore_Wl2_Global *global;
+   Ecore_Wl2_Event_Global *ev;
 
    ewd = data;
 
-   eina_hash_del_by_key(ewd->globals, id);
+   /* try to find this global in our hash */
+   global = eina_hash_find(ewd->globals, &id);
+   if (!global) return;
+
+   /* allocate space for event structure */
+   ev = calloc(1, sizeof(Ecore_Wl2_Event_Global));
+   if (!ev) return;
+
+   ev->id = id;
+   ev->version = global->version;
+   ev->interface = eina_stringshare_add(global->interface);
+
+   /* raise an event saying a global has been removed */
+   ecore_event_add(ECORE_WL2_EVENT_GLOBAL_REMOVED, ev,
+                   _cb_global_event_free, NULL);
+
+   /* delete this global from our hash */
+   eina_hash_del_by_key(ewd->globals, &id);
 }
 
 static const struct wl_registry_listener _registry_listener =
@@ -100,7 +145,7 @@ _cb_globals_hash_del(void *data)
 
    global = data;
 
-   eina_stringshare_del(global->name);
+   eina_stringshare_del(global->interface);
 
    free(global);
 }
