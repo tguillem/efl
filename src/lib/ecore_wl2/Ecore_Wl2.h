@@ -33,6 +33,7 @@ EAPI extern int ECORE_WL2_EVENT_GLOBAL_ADDED;
 EAPI extern int ECORE_WL2_EVENT_GLOBAL_REMOVED;
 
 EAPI int ecore_wl2_init(const char *name);
+EAPI int ecore_wl2_shutdown(void);
 
 /* # ifdef __cplusplus */
 /* } */
