@@ -44,6 +44,7 @@ struct _Ecore_Wl2_Display
      {
         struct wl_display *display;
         struct wl_registry *registry;
+        struct wl_compositor *compositor;
      } wl;
 
    Ecore_Fd_Handler *fd_hdl;
