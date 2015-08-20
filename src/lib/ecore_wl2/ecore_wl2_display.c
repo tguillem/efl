@@ -68,6 +68,14 @@ _cb_global_add(void *data, struct wl_registry *registry, unsigned int id, const 
         ewd->wl.wl_shell =
           wl_registry_bind(registry, id, &wl_shell_interface, 1);
      }
+   else if ((!strcmp(interface, "xdg_shell")) &&
+            (!getenv("EFL_WAYLAND_DONT_USE_XDG_SHELL")))
+     {
+        ewd->wl.xdg_shell =
+          wl_registry_bind(registry, id, &xdg_shell_interface, 1);
+        xdg_shell_use_unstable_version(ewd->wl.xdg_shell, XDG_VERSION);
+        /* TODO: Add listener */
+     }
 
    /* allocate space for event structure */
    ev = calloc(1, sizeof(Ecore_Wl2_Event_Global));
