@@ -48,6 +48,11 @@ _cb_global_add(void *data, struct wl_registry *registry, unsigned int id, const 
         ewd->wl.compositor =
           wl_registry_bind(registry, id, &wl_compositor_interface, 3);
      }
+   else if (!strcmp(interface, "wl_subcompositor"))
+     {
+        ewd->wl.subcompositor =
+          wl_registry_bind(registry, id, &wl_subcompositor_interface, 1);
+     }
 
    /* allocate space for event structure */
    ev = calloc(1, sizeof(Ecore_Wl2_Event_Global));
