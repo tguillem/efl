@@ -58,6 +58,11 @@ _cb_global_add(void *data, struct wl_registry *registry, unsigned int id, const 
         ewd->wl.shm =
           wl_registry_bind(registry, id, &wl_shm_interface, 1);
      }
+   else if (!strcmp(interface, "wl_data_device_manager"))
+     {
+        ewd->wl.data_device_manager =
+          wl_registry_bind(registry, id, &wl_data_device_manager_interface, 1);
+     }
 
    /* allocate space for event structure */
    ev = calloc(1, sizeof(Ecore_Wl2_Event_Global));
