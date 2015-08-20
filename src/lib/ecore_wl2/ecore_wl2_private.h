@@ -48,6 +48,7 @@ struct _Ecore_Wl2_Display
         struct wl_subcompositor *subcompositor;
         struct wl_data_device_manager *data_device_manager;
         struct wl_shm *shm;
+        struct wl_shell *wl_shell;
      } wl;
 
    Ecore_Fd_Handler *fd_hdl;
