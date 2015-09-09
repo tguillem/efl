@@ -225,10 +225,10 @@ EAPI Eina_Iterator *ecore_wl2_display_globals_get(Ecore_Wl2_Display *display);
  *
  * @param display The Ecore_Wl2_Display on which to create this new window
  * @param parent The Ecore_Wl2_Window which is the parent of this window
- * @param x
- * @param y
- * @param w
- * @param h
+ * @param x Initial x position of window
+ * @param y Initial y position of window
+ * @param w Initial width of window
+ * @param h Initial height of window
  *
  * @ingroup Ecore_Wl2_Window_Group
  */
